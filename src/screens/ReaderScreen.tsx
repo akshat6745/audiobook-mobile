@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  Modal,
+  Animated,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
@@ -29,10 +31,14 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [content, setContent] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fontSize, setFontSize] = useState(16);
-  const [backgroundColor, setBackgroundColor] = useState('#fff');
-  const [textColor, setTextColor] = useState('#333');
+  const [backgroundColor, setBackgroundColor] = useState('#1a1a1a');
+  const [textColor, setTextColor] = useState('#fff');
   const [showSettings, setShowSettings] = useState(false);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState<number | null>(null);
+  const [showMiniPlayer, setShowMiniPlayer] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [showSpeedModal, setShowSpeedModal] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
 
@@ -108,12 +114,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const toggleTheme = () => {
-    if (backgroundColor === '#fff') {
-      setBackgroundColor('#1a1a1a');
-      setTextColor('#fff');
-    } else {
+    if (backgroundColor === '#1a1a1a') {
       setBackgroundColor('#fff');
       setTextColor('#333');
+    } else {
+      setBackgroundColor('#1a1a1a');
+      setTextColor('#fff');
     }
   };
 
@@ -122,9 +128,34 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleParagraphPress = (index: number) => {
-    setActiveParagraphIndex(activeParagraphIndex === index ? null : index);
-    // Here you can add audio playback functionality in the future
-    // For now, just provide visual feedback
+    setActiveParagraphIndex(index);
+    setShowMiniPlayer(true);
+    setIsPlaying(false); // Start paused when selecting new paragraph
+  };
+
+  const togglePlayback = () => {
+    setIsPlaying(!isPlaying);
+    // Here you would implement actual TTS audio playback
+  };
+
+  const goToPreviousParagraph = () => {
+    if (activeParagraphIndex !== null && activeParagraphIndex > 0) {
+      setActiveParagraphIndex(activeParagraphIndex - 1);
+      setIsPlaying(false);
+    }
+  };
+
+  const goToNextParagraph = () => {
+    if (activeParagraphIndex !== null && activeParagraphIndex < content.length - 1) {
+      setActiveParagraphIndex(activeParagraphIndex + 1);
+      setIsPlaying(false);
+    }
+  };
+
+  const closeMiniPlayer = () => {
+    setShowMiniPlayer(false);
+    setIsPlaying(false);
+    setActiveParagraphIndex(null);
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
@@ -141,8 +172,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
             backgroundColor: isActive
               ? (backgroundColor === '#fff' ? '#f0f8ff' : '#2a2a2a')
               : 'transparent',
-            borderLeftColor: isActive ? '#2196F3' : 'transparent',
+            borderLeftColor: isActive ? '#64b5f6' : 'transparent',
             borderLeftWidth: isActive ? 4 : 0,
+            borderColor: isActive ? '#64b5f6' : 'transparent',
+            borderWidth: isActive ? 1 : 0,
           }
         ]}
       >
@@ -165,10 +198,143 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
               color: backgroundColor === '#fff' ? '#1976d2' : '#64b5f6'
             }
           ]}>
-            Paragraph {index + 1} • Tap to deselect
+            Paragraph {index + 1} • Now Reading
           </Text>
         )}
       </TouchableOpacity>
+    );
+  };
+
+  const renderSpeedModal = () => {
+    const speedOptions = [0.75, 1.0, 1.25, 1.5, 2.0];
+
+    return (
+      <Modal
+        visible={showSpeedModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSpeedModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.speedModalContainer, { backgroundColor: backgroundColor }]}>
+            <Text style={[styles.speedModalTitle, { color: textColor }]}>
+              Playback Speed
+            </Text>
+
+            {speedOptions.map((speed) => (
+              <TouchableOpacity
+                key={speed}
+                style={[
+                  styles.speedOption,
+                  {
+                    backgroundColor: playbackSpeed === speed
+                      ? '#64b5f6'
+                      : 'transparent',
+                    borderColor: '#64b5f6',
+                  }
+                ]}
+                onPress={() => {
+                  setPlaybackSpeed(speed);
+                  setShowSpeedModal(false);
+                }}
+              >
+                <Text style={[
+                  styles.speedOptionText,
+                  {
+                    color: playbackSpeed === speed ? '#000' : textColor,
+                    fontWeight: playbackSpeed === speed ? 'bold' : 'normal',
+                  }
+                ]}>
+                  {speed}×
+                </Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={styles.speedModalClose}
+              onPress={() => setShowSpeedModal(false)}
+            >
+              <Text style={[styles.speedModalCloseText, { color: '#64b5f6' }]}>
+                Close
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const renderMiniPlayer = () => {
+    if (!showMiniPlayer || activeParagraphIndex === null) return null;
+
+    return (
+      <Animated.View style={[styles.miniPlayerContainer, { backgroundColor: backgroundColor }]}>
+        <View style={styles.miniPlayerContent}>
+          <Text style={[styles.miniPlayerTitle, { color: textColor }]}>
+            Paragraph {activeParagraphIndex + 1}
+          </Text>
+
+          <View style={styles.miniPlayerControls}>
+            {/* Previous Button */}
+            <TouchableOpacity
+              style={[
+                styles.miniPlayerButton,
+                {
+                  opacity: activeParagraphIndex > 0 ? 1 : 0.5,
+                  backgroundColor: '#333'
+                }
+              ]}
+              onPress={goToPreviousParagraph}
+              disabled={activeParagraphIndex === 0}
+            >
+              <MaterialIcons name="skip-previous" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            {/* Play/Pause Button */}
+            <TouchableOpacity
+              style={[styles.miniPlayerPlayButton, { backgroundColor: '#64b5f6' }]}
+              onPress={togglePlayback}
+            >
+              <MaterialIcons
+                name={isPlaying ? "pause" : "play-arrow"}
+                size={24}
+                color="#000"
+              />
+            </TouchableOpacity>
+
+            {/* Next Button */}
+            <TouchableOpacity
+              style={[
+                styles.miniPlayerButton,
+                {
+                  opacity: activeParagraphIndex < content.length - 1 ? 1 : 0.5,
+                  backgroundColor: '#333'
+                }
+              ]}
+              onPress={goToNextParagraph}
+              disabled={activeParagraphIndex === content.length - 1}
+            >
+              <MaterialIcons name="skip-next" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            {/* Speed Button */}
+            <TouchableOpacity
+              style={[styles.miniPlayerSpeedButton, { backgroundColor: '#333' }]}
+              onPress={() => setShowSpeedModal(true)}
+            >
+              <Text style={styles.miniPlayerSpeedText}>{playbackSpeed}×</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Close Button */}
+          <TouchableOpacity
+            style={styles.miniPlayerClose}
+            onPress={closeMiniPlayer}
+          >
+            <MaterialIcons name="close" size={20} color={textColor} />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     );
   };
 
@@ -197,12 +363,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         <Text style={[styles.settingsLabel, { color: textColor }]}>Theme</Text>
         <TouchableOpacity style={styles.themeButton} onPress={toggleTheme}>
           <MaterialIcons
-            name={backgroundColor === '#fff' ? 'dark-mode' : 'light-mode'}
+            name={backgroundColor === '#1a1a1a' ? 'light-mode' : 'dark-mode'}
             size={20}
             color={textColor}
           />
           <Text style={[styles.themeButtonText, { color: textColor }]}>
-            {backgroundColor === '#fff' ? 'Dark' : 'Light'}
+            {backgroundColor === '#1a1a1a' ? 'Light' : 'Dark'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -223,7 +389,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingBottom: showMiniPlayer ? 180 : 120 }
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.chapterTitle, { color: textColor }]}>
@@ -234,41 +403,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       </ScrollView>
 
       {showSettings && renderSettingsPanel()}
+      {renderMiniPlayer()}
+      {renderSpeedModal()}
 
-      <View style={[styles.toolbar, { backgroundColor }]}>
-        <TouchableOpacity
-          style={styles.toolbarButton}
-          onPress={toggleSettings}
-        >
-          <MaterialIcons name="settings" size={24} color={textColor} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.toolbarButton}
-          onPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })}
-        >
-          <MaterialIcons name="keyboard-arrow-up" size={24} color={textColor} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.audioButton}
-          onPress={navigateToAudioPlayer}
-        >
-          <MaterialIcons name="headset" size={24} color="#fff" />
-          <Text style={styles.audioButtonText}>Listen</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.toolbarButton}
-          onPress={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-        >
-          <MaterialIcons name="keyboard-arrow-down" size={24} color={textColor} />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
-
 const { height } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
@@ -316,7 +456,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 20,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: '#333',
   },
   toolbarButton: {
     padding: 10,
@@ -395,6 +535,116 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 16,
     color: '#666',
+  },
+  // Mini Player Styles
+  miniPlayerContainer: {
+    position: 'absolute',
+    bottom: 70,
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  miniPlayerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: 'space-between',
+  },
+  miniPlayerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  miniPlayerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  miniPlayerButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniPlayerPlayButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniPlayerSpeedButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    minWidth: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniPlayerSpeedText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  miniPlayerClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Speed Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  speedModalContainer: {
+    width: '80%',
+    maxWidth: 300,
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  speedModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  speedOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  speedOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  speedModalClose: {
+    marginTop: 16,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  speedModalCloseText: {
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
