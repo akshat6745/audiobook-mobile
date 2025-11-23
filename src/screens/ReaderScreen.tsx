@@ -32,6 +32,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [backgroundColor, setBackgroundColor] = useState('#fff');
   const [textColor, setTextColor] = useState('#333');
   const [showSettings, setShowSettings] = useState(false);
+  const [activeParagraphIndex, setActiveParagraphIndex] = useState<number | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
 
@@ -47,7 +48,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         chapter.chapterNumber,
         novel.title
       );
-      setContent(chapterData.content);
+      // Filter out empty paragraphs and process content
+      const processedContent = chapterData.content
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0);
+
+      setContent(processedContent);
     } catch (error) {
       console.error('Error loading chapter content:', error);
 
@@ -61,10 +67,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         "• Automatic progress saving",
         "• Audio playback with text-to-speech",
         "• Cross-platform support (iOS, Android, Web)",
-        "To use this app with real content, make sure your AudioBookPython backend is running on localhost:8080 and has novels and chapters available.",
+        "• Clickable paragraphs for enhanced interaction",
+        "To use this app with real content, make sure your AudioBookPython backend is running and accessible.",
         "The app will automatically detect when the backend is available and switch from demo mode to live mode.",
         "Enjoy exploring the features of this audiobook reader! You can navigate using the toolbar at the bottom, switch to audio mode, or adjust reading settings.",
         "This paragraph demonstrates how longer content is displayed in the reader. The text is automatically formatted for comfortable reading with proper line spacing and justification.",
+        "Try tapping on any paragraph to see the click interaction - this feature can be used for audio playback control.",
         "Thank you for trying out the AudioBook Reader mobile application!"
       ];
 
@@ -72,7 +80,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
       Alert.alert(
         'Demo Content',
-        'Loading demo chapter content. Connect to AudioBookPython backend for real novel content.'
+        'Loading demo chapter content. Backend not available - using demo mode.',
+        [{ text: 'OK' }]
       );
     } finally {
       setIsLoading(false);
@@ -112,11 +121,56 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('AudioPlayer', { novel, chapter });
   };
 
-  const renderParagraph = (paragraph: string, index: number) => (
-    <Text key={index} style={[styles.paragraph, { fontSize, color: textColor }]}>
-      {paragraph}
-    </Text>
-  );
+  const handleParagraphPress = (index: number) => {
+    setActiveParagraphIndex(activeParagraphIndex === index ? null : index);
+    // Here you can add audio playback functionality in the future
+    // For now, just provide visual feedback
+  };
+
+  const renderParagraph = (paragraph: string, index: number) => {
+    const isActive = activeParagraphIndex === index;
+
+    return (
+      <TouchableOpacity
+        key={index}
+        activeOpacity={0.7}
+        onPress={() => handleParagraphPress(index)}
+        style={[
+          styles.paragraphContainer,
+          {
+            backgroundColor: isActive
+              ? (backgroundColor === '#fff' ? '#f0f8ff' : '#2a2a2a')
+              : 'transparent',
+            borderLeftColor: isActive ? '#2196F3' : 'transparent',
+            borderLeftWidth: isActive ? 4 : 0,
+          }
+        ]}
+      >
+        <Text style={[
+          styles.paragraph,
+          {
+            fontSize,
+            color: isActive
+              ? (backgroundColor === '#fff' ? '#1976d2' : '#64b5f6')
+              : textColor,
+            fontWeight: isActive ? '600' : 'normal'
+          }
+        ]}>
+          {paragraph}
+        </Text>
+        {isActive && (
+          <Text style={[
+            styles.paragraphLabel,
+            {
+              color: backgroundColor === '#fff' ? '#1976d2' : '#64b5f6'
+            }
+          ]}>
+            Paragraph {index + 1} • Tap to deselect
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const renderSettingsPanel = () => (
     <View style={[styles.settingsPanel, { backgroundColor: backgroundColor }]}>
@@ -235,10 +289,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 28,
   },
+  paragraphContainer: {
+    marginBottom: 15,
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 50,
+  },
   paragraph: {
     lineHeight: 24,
-    marginBottom: 15,
     textAlign: 'justify',
+  },
+  paragraphLabel: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 8,
+    textAlign: 'right',
   },
   toolbar: {
     position: 'absolute',

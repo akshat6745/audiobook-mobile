@@ -11,7 +11,7 @@ import {
 } from '../types';
 
 // Configure base URL for the AudioBookPython API
-const API_BASE_URL = 'http://localhost:8080'; // Change this to your deployed API URL
+const API_BASE_URL = 'http://localhost:8080';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

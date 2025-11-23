@@ -16,6 +16,9 @@ export interface Chapter {
 
 export interface ChapterContent {
   content: string[];
+  chapterNumber?: number;
+  chapterTitle?: string;
+  timestamp?: string;
 }
 
 export interface ChapterListResponse {

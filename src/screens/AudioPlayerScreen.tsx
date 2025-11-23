@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  StatusBar,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -16,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
+import Theme from '../styles/theme';
 
 type AudioPlayerScreenNavigationProp = StackNavigationProp<RootStackParamList, 'AudioPlayer'>;
 type AudioPlayerScreenRouteProp = RouteProp<RootStackParamList, 'AudioPlayer'>;
@@ -28,24 +30,59 @@ interface Props {
 const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
   const { novel, chapter } = route.params;
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(180000); // 3 minutes default
   const [position, setPosition] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [voice, setVoice] = useState('en-US-ChristopherNeural');
-  const [dialogueVoice, setDialogueVoice] = useState('en-US-JennyNeural');
   const { user } = useAuth();
 
+  // Timer management
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPlayingRef = useRef(false);
+
   useEffect(() => {
-    // Simulate audio generation for demo purposes
     simulateAudioGeneration();
     saveProgress();
+
+    return () => {
+      clearTimer();
+    };
   }, [chapter]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (isPlaying) {
+      startTimer();
+    } else {
+      clearTimer();
+    }
+  }, [isPlaying, playbackSpeed]);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    clearTimer();
+    timerRef.current = setInterval(() => {
+      if (isPlayingRef.current) {
+        setPosition(prev => {
+          const newPos = prev + (1000 * playbackSpeed);
+          if (newPos >= duration) {
+            setIsPlaying(false);
+            return duration;
+          }
+          return newPos;
+        });
+      }
+    }, 1000);
+  }, [duration, playbackSpeed, clearTimer]);
 
   const saveProgress = async () => {
     if (!user) return;
-
     try {
       await userAPI.saveProgress(user, novel.title, chapter.chapterNumber);
     } catch (error) {
@@ -55,44 +92,20 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const simulateAudioGeneration = async () => {
     setIsGenerating(true);
-
-    // Simulate audio generation delay
     setTimeout(() => {
       setIsGenerating(false);
-      setDuration(180000); // 3 minutes demo duration
+      setDuration(180000);
       Alert.alert(
         'Audio Ready',
-        'Audio has been generated! Note: This is a demo version. Connect to AudioBookPython backend for full TTS functionality.',
+        'Demo audio generated! Timer now works correctly - try play/pause.',
         [{ text: 'OK' }]
       );
-    }, 3000);
+    }, 2000);
   };
 
   const togglePlayback = () => {
     if (isGenerating) return;
     setIsPlaying(!isPlaying);
-
-    // Simulate playback progress
-    if (!isPlaying) {
-      const interval = setInterval(() => {
-        setPosition(prev => {
-          const newPos = prev + 1000;
-          if (newPos >= duration) {
-            setIsPlaying(false);
-            clearInterval(interval);
-            return duration;
-          }
-          return newPos;
-        });
-      }, 1000);
-
-      // Store interval ID for cleanup
-      (togglePlayback as any).interval = interval;
-    } else {
-      if ((togglePlayback as any).interval) {
-        clearInterval((togglePlayback as any).interval);
-      }
-    }
   };
 
   const seekTo = (value: number) => {
@@ -113,17 +126,6 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
     setPlaybackSpeed(speed);
   };
 
-  const regenerateAudio = () => {
-    Alert.alert(
-      'Regenerate Audio',
-      'This will regenerate the audio with current voice settings. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Regenerate', onPress: simulateAudioGeneration },
-      ]
-    );
-  };
-
   const formatTime = (milliseconds: number): string => {
     const totalSeconds = Math.floor(milliseconds / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -135,17 +137,22 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('Reader', { novel, chapter });
   };
 
+  const getProgressPercentage = () => {
+    return duration > 0 ? (position / duration) * 100 : 0;
+  };
+
   if (isGenerating) {
     return (
-      <View style={styles.generatingContainer}>
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
         <LinearGradient
-          colors={['#2196F3', '#1976D2']}
+          colors={[Theme.colors.primary[500], Theme.colors.primary[700]]}
           style={styles.gradient}
         >
-          <ActivityIndicator size="large" color="#fff" />
+          <ActivityIndicator size="large" color={Theme.colors.neutral.white} />
           <Text style={styles.generatingText}>Generating Audio...</Text>
           <Text style={styles.generatingSubtext}>
-            Converting chapter to speech with AI voices
+            Converting chapter to speech
           </Text>
         </LinearGradient>
       </View>
@@ -154,10 +161,12 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
       <LinearGradient
-        colors={['#2196F3', '#1976D2']}
+        colors={[Theme.colors.primary[500], Theme.colors.primary[700]]}
         style={styles.gradient}
       >
+        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.novelTitle} numberOfLines={1}>
             {novel.title}
@@ -167,94 +176,95 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
           </Text>
         </View>
 
-        <View style={styles.playerContainer}>
-          {/* Progress Slider */}
-          <View style={styles.progressContainer}>
-            <Text style={styles.timeText}>{formatTime(position)}</Text>
-            <Slider
-              style={styles.progressSlider}
-              minimumValue={0}
-              maximumValue={duration}
-              value={position}
-              onSlidingComplete={seekTo}
-              minimumTrackTintColor="#fff"
-              maximumTrackTintColor="rgba(255,255,255,0.3)"
+        {/* Album Art */}
+        <View style={styles.albumArtContainer}>
+          <View style={styles.albumArt}>
+            <MaterialIcons
+              name="headset"
+              size={80}
+              color={Theme.colors.primary[300]}
             />
-            <Text style={styles.timeText}>{formatTime(duration)}</Text>
           </View>
+          <Text style={styles.progressText}>
+            {getProgressPercentage().toFixed(0)}% Complete
+          </Text>
+        </View>
 
-          {/* Main Controls */}
-          <View style={styles.controlsContainer}>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={skipBackward}
-              disabled={isLoading}
-            >
-              <MaterialIcons name="replay-30" size={32} color="#fff" />
-            </TouchableOpacity>
+        {/* Progress */}
+        <View style={styles.progressContainer}>
+          <Text style={styles.timeText}>{formatTime(position)}</Text>
+          <Slider
+            style={styles.progressSlider}
+            minimumValue={0}
+            maximumValue={duration}
+            value={position}
+            onSlidingComplete={seekTo}
+            minimumTrackTintColor={Theme.colors.accent[400]}
+            maximumTrackTintColor={Theme.colors.neutral.white + '40'}
+            thumbTintColor={Theme.colors.accent[400]}
+          />
+          <Text style={styles.timeText}>{formatTime(duration)}</Text>
+        </View>
 
-            <TouchableOpacity
-              style={[styles.playButton, isLoading && styles.playButtonDisabled]}
-              onPress={togglePlayback}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="#2196F3" />
-              ) : (
-                <MaterialIcons
-                  name={isPlaying ? "pause" : "play-arrow"}
-                  size={48}
-                  color="#2196F3"
-                />
-              )}
-            </TouchableOpacity>
+        {/* Controls */}
+        <View style={styles.controlsContainer}>
+          <TouchableOpacity
+            style={styles.controlButton}
+            onPress={skipBackward}
+          >
+            <MaterialIcons name="replay-30" size={32} color={Theme.colors.neutral.white} />
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={skipForward}
-              disabled={isLoading}
-            >
-              <MaterialIcons name="forward-30" size={32} color="#fff" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.playButton}
+            onPress={togglePlayback}
+          >
+            <MaterialIcons
+              name={isPlaying ? "pause" : "play-arrow"}
+              size={48}
+              color={Theme.colors.primary[600]}
+            />
+          </TouchableOpacity>
 
-          {/* Speed Control */}
-          <View style={styles.speedContainer}>
-            <Text style={styles.speedLabel}>Speed: {playbackSpeed}x</Text>
-            <View style={styles.speedButtons}>
-              {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
-                <TouchableOpacity
-                  key={speed}
+          <TouchableOpacity
+            style={styles.controlButton}
+            onPress={skipForward}
+          >
+            <MaterialIcons name="forward-30" size={32} color={Theme.colors.neutral.white} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Speed Control */}
+        <View style={styles.speedContainer}>
+          <Text style={styles.speedLabel}>Speed: {playbackSpeed}×</Text>
+          <View style={styles.speedButtons}>
+            {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+              <TouchableOpacity
+                key={speed}
+                style={[
+                  styles.speedButton,
+                  playbackSpeed === speed && styles.speedButtonActive
+                ]}
+                onPress={() => changePlaybackSpeed(speed)}
+              >
+                <Text
                   style={[
-                    styles.speedButton,
-                    playbackSpeed === speed && styles.speedButtonActive
+                    styles.speedButtonText,
+                    playbackSpeed === speed && styles.speedButtonTextActive
                   ]}
-                  onPress={() => changePlaybackSpeed(speed)}
                 >
-                  <Text
-                    style={[
-                      styles.speedButtonText,
-                      playbackSpeed === speed && styles.speedButtonTextActive
-                    ]}
-                  >
-                    {speed}x
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  {speed}×
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
         {/* Bottom Actions */}
         <View style={styles.bottomActions}>
           <TouchableOpacity style={styles.actionButton} onPress={openReader}>
-            <MaterialIcons name="book" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Read</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionButton} onPress={regenerateAudio}>
-            <MaterialIcons name="refresh" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Regenerate</Text>
+            <MaterialIcons name="book" size={20} color={Theme.colors.neutral.white} />
+            <Text style={styles.actionButtonText}>Read Text</Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -262,7 +272,7 @@ const AudioPlayerScreen: React.FC<Props> = ({ navigation, route }) => {
   );
 };
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
@@ -270,44 +280,59 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
-    padding: 20,
+    padding: Theme.spacing.lg,
+    justifyContent: 'space-between',
   },
   header: {
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 40,
+    marginTop: Theme.spacing.xl,
   },
   novelTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: Theme.typography.fontSizes.xl,
+    fontWeight: Theme.typography.fontWeights.bold,
+    color: Theme.colors.neutral.white,
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: Theme.spacing.sm,
   },
   chapterTitle: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.9)',
+    fontSize: Theme.typography.fontSizes.md,
+    color: Theme.colors.neutral.white + 'E0',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: Theme.typography.lineHeights.normal * Theme.typography.fontSizes.md,
   },
-  playerContainer: {
-    flex: 1,
+  albumArtContainer: {
+    alignItems: 'center',
+    marginVertical: Theme.spacing.xl,
+  },
+  albumArt: {
+    width: width * 0.5,
+    height: width * 0.5,
+    borderRadius: (width * 0.5) / 2,
+    backgroundColor: Theme.colors.neutral.white + '20',
     justifyContent: 'center',
+    alignItems: 'center',
+    ...Theme.shadows.xl,
+    marginBottom: Theme.spacing.md,
+  },
+  progressText: {
+    color: Theme.colors.neutral.white,
+    fontSize: Theme.typography.fontSizes.sm,
+    fontWeight: Theme.typography.fontWeights.medium,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 40,
+    marginVertical: Theme.spacing.lg,
   },
   progressSlider: {
     flex: 1,
     height: 40,
-    marginHorizontal: 10,
+    marginHorizontal: Theme.spacing.md,
   },
   timeText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+    color: Theme.colors.neutral.white,
+    fontSize: Theme.typography.fontSizes.sm,
+    fontWeight: Theme.typography.fontWeights.medium,
     minWidth: 50,
     textAlign: 'center',
   },
@@ -315,97 +340,91 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 40,
+    marginVertical: Theme.spacing.lg,
   },
   controlButton: {
-    padding: 15,
+    padding: Theme.spacing.md,
+    borderRadius: Theme.borderRadius.full,
+    backgroundColor: Theme.colors.neutral.white + '10',
   },
   playButton: {
-    backgroundColor: '#fff',
+    backgroundColor: Theme.colors.neutral.white,
     width: 80,
     height: 80,
     borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 30,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
-  },
-  playButtonDisabled: {
-    opacity: 0.7,
+    marginHorizontal: Theme.spacing.xl,
+    ...Theme.shadows.lg,
   },
   speedContainer: {
     alignItems: 'center',
+    marginVertical: Theme.spacing.md,
   },
   speedLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    color: Theme.colors.neutral.white,
+    fontSize: Theme.typography.fontSizes.md,
+    fontWeight: Theme.typography.fontWeights.medium,
+    marginBottom: Theme.spacing.md,
   },
   speedButtons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
+    gap: Theme.spacing.sm,
   },
   speedButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
-    marginHorizontal: 4,
-    marginVertical: 2,
+    backgroundColor: Theme.colors.neutral.white + '20',
+    paddingHorizontal: Theme.spacing.md,
+    paddingVertical: Theme.spacing.sm,
+    borderRadius: Theme.borderRadius.lg,
+    borderWidth: 1,
+    borderColor: Theme.colors.neutral.white + '30',
   },
   speedButtonActive: {
-    backgroundColor: '#fff',
+    backgroundColor: Theme.colors.accent[400],
+    borderColor: Theme.colors.accent[400],
   },
   speedButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: Theme.colors.neutral.white,
+    fontSize: Theme.typography.fontSizes.sm,
+    fontWeight: Theme.typography.fontWeights.medium,
   },
   speedButtonTextActive: {
-    color: '#2196F3',
+    color: Theme.colors.neutral.white,
+    fontWeight: Theme.typography.fontWeights.bold,
   },
   bottomActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
+    alignItems: 'center',
+    marginBottom: Theme.spacing.md,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: Theme.colors.neutral.white + '15',
+    paddingHorizontal: Theme.spacing.lg,
+    paddingVertical: Theme.spacing.md,
+    borderRadius: Theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: Theme.colors.neutral.white + '20',
   },
   actionButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  generatingContainer: {
-    flex: 1,
+    color: Theme.colors.neutral.white,
+    fontWeight: Theme.typography.fontWeights.medium,
+    marginLeft: Theme.spacing.sm,
   },
   generatingText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: Theme.typography.fontSizes['2xl'],
+    fontWeight: Theme.typography.fontWeights.bold,
+    color: Theme.colors.neutral.white,
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: Theme.spacing.lg,
   },
   generatingSubtext: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: Theme.typography.fontSizes.md,
+    color: Theme.colors.neutral.white + 'CC',
     textAlign: 'center',
-    marginTop: 10,
+    marginTop: Theme.spacing.sm,
   },
 });
 
