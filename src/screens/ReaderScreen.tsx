@@ -14,7 +14,10 @@ import {
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { chapterAPI, userAPI } from '../services/api';
+import api from '../services/api';
 import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,13 +42,65 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [showSpeedModal, setShowSpeedModal] = useState(false);
+  const [showNarratorModal, setShowNarratorModal] = useState(false);
+  const [showDialogueModal, setShowDialogueModal] = useState(false);
+  const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
+  const [dialogueVoice, setDialogueVoice] = useState("en-US-AriaNeural");
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [audioStatus, setAudioStatus] = useState<any>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
+
+  // Voice options
+  const narratorVoices = [
+    { id: "en-US-ChristopherNeural", name: "Christopher (Deep)" },
+    { id: "en-US-EricNeural", name: "Eric (Warm)" },
+    { id: "en-US-GuyNeural", name: "Guy (Clear)" }
+  ];
+
+  const dialogueVoices = [
+    { id: "en-US-AriaNeural", name: "Aria (Natural)" },
+    { id: "en-US-JennyNeural", name: "Jenny (Expressive)" },
+    { id: "en-US-MichelleNeural", name: "Michelle (Friendly)" }
+  ];
 
   useEffect(() => {
     loadChapterContent();
     saveProgress();
+    initializeAudio();
+
+    return () => {
+      // Cleanup audio when component unmounts
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
   }, [chapter]);
+
+  // Monitor audio status
+  useEffect(() => {
+    if (audioStatus) {
+      if (audioStatus.didJustFinish) {
+        setIsPlaying(false);
+      }
+      setIsPlaying(audioStatus.isPlaying || false);
+    }
+  }, [audioStatus]);
+
+  const initializeAudio = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+    } catch (error) {
+      console.error('Error initializing audio:', error);
+    }
+  };
 
   const loadChapterContent = async () => {
     try {
@@ -127,35 +182,187 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('AudioPlayer', { novel, chapter });
   };
 
-  const handleParagraphPress = (index: number) => {
+  const handleParagraphPress = async (index: number) => {
     setActiveParagraphIndex(index);
     setShowMiniPlayer(true);
-    setIsPlaying(false); // Start paused when selecting new paragraph
+    setIsPlaying(false);
+
+    // Load audio for this paragraph
+    await loadParagraphAudio(index);
   };
 
-  const togglePlayback = () => {
-    setIsPlaying(!isPlaying);
-    // Here you would implement actual TTS audio playback
+  const loadParagraphAudio = async (index: number) => {
+    if (!content[index]) return;
+
+    try {
+      setIsLoadingAudio(true);
+      const paragraphText = content[index];
+
+      // Unload previous sound
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+      }
+
+      // Make API request to get audio
+      const response = await fetch(`${api.defaults.baseURL}/tts-dual-voice`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: paragraphText,
+          paragraphVoice: narratorVoice,
+          dialogueVoice: dialogueVoice
+        })
+      });
+
+      if (response.ok) {
+        // Get the audio as a blob
+        const audioBlob = await response.blob();
+
+        // Create a temporary file
+        const fileUri = `${FileSystem.cacheDirectory}audio_${Date.now()}.mp3`;
+
+        // Convert blob to base64
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+
+        reader.onload = async () => {
+          try {
+            const base64Data = (reader.result as string).split(',')[1];
+
+            // Write the file using legacy API which is more stable
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+
+            // Load the audio file with Expo AV
+            const { sound: newSound } = await Audio.Sound.createAsync(
+              { uri: fileUri },
+              {
+                shouldPlay: false,
+                rate: playbackSpeed,
+                shouldCorrectPitch: true
+              },
+              (status) => setAudioStatus(status)
+            );
+
+            setSound(newSound);
+          } catch (fileError) {
+            console.error('Error writing audio file:', fileError);
+            Alert.alert(
+              'Audio Error',
+              'Failed to save audio file. Please try again.',
+              [{ text: 'OK' }]
+            );
+          }
+        };
+
+        reader.onerror = () => {
+          console.error('Error reading audio blob');
+          Alert.alert(
+            'Audio Error',
+            'Failed to process audio data. Please try again.',
+            [{ text: 'OK' }]
+          );
+        };
+      } else {
+        console.error('Failed to generate audio:', response.status);
+        Alert.alert(
+          'Audio Generation Failed',
+          'Could not generate audio for this paragraph. Please try again.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error generating audio:', error);
+      Alert.alert(
+        'Audio Error',
+        'Failed to connect to audio service. Please check your connection.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsLoadingAudio(false);
+    }
   };
 
-  const goToPreviousParagraph = () => {
+  const togglePlayback = async () => {
+    if (sound && !isLoadingAudio) {
+      try {
+        if (isPlaying) {
+          await sound.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      } catch (error) {
+        console.error('Error controlling playback:', error);
+      }
+    }
+  };
+
+  const goToPreviousParagraph = async () => {
     if (activeParagraphIndex !== null && activeParagraphIndex > 0) {
-      setActiveParagraphIndex(activeParagraphIndex - 1);
+      const newIndex = activeParagraphIndex - 1;
+      setActiveParagraphIndex(newIndex);
       setIsPlaying(false);
+      await loadParagraphAudio(newIndex);
     }
   };
 
-  const goToNextParagraph = () => {
+  const goToNextParagraph = async () => {
     if (activeParagraphIndex !== null && activeParagraphIndex < content.length - 1) {
-      setActiveParagraphIndex(activeParagraphIndex + 1);
+      const newIndex = activeParagraphIndex + 1;
+      setActiveParagraphIndex(newIndex);
       setIsPlaying(false);
+      await loadParagraphAudio(newIndex);
     }
   };
 
-  const closeMiniPlayer = () => {
+  const closeMiniPlayer = async () => {
     setShowMiniPlayer(false);
     setIsPlaying(false);
     setActiveParagraphIndex(null);
+
+    // Clean up sound
+    if (sound) {
+      try {
+        await sound.unloadAsync();
+        setSound(null);
+      } catch (error) {
+        console.error('Error unloading sound:', error);
+      }
+    }
+  };
+
+  const openNarratorVoiceModal = () => {
+    setShowNarratorModal(true);
+  };
+
+  const openDialogueVoiceModal = () => {
+    setShowDialogueModal(true);
+  };
+
+  const selectNarratorVoice = async (voiceId: string) => {
+    setNarratorVoice(voiceId);
+    setShowNarratorModal(false);
+
+    // Regenerate audio with new voice if paragraph is active
+    if (activeParagraphIndex !== null) {
+      await loadParagraphAudio(activeParagraphIndex);
+    }
+  };
+
+  const selectDialogueVoice = async (voiceId: string) => {
+    setDialogueVoice(voiceId);
+    setShowDialogueModal(false);
+
+    // Regenerate audio with new voice if paragraph is active
+    if (activeParagraphIndex !== null) {
+      await loadParagraphAudio(activeParagraphIndex);
+    }
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
@@ -171,11 +378,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           {
             backgroundColor: isActive
               ? (backgroundColor === '#fff' ? '#f0f8ff' : '#2a2a2a')
-              : 'transparent',
+              : undefined, // Use default from styles
             borderLeftColor: isActive ? '#64b5f6' : 'transparent',
             borderLeftWidth: isActive ? 4 : 0,
-            borderColor: isActive ? '#64b5f6' : 'transparent',
-            borderWidth: isActive ? 1 : 0,
+            borderColor: isActive ? '#64b5f6' : '#333333',
           }
         ]}
       >
@@ -233,9 +439,18 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                     borderColor: '#64b5f6',
                   }
                 ]}
-                onPress={() => {
+                onPress={async () => {
                   setPlaybackSpeed(speed);
                   setShowSpeedModal(false);
+
+                  // Update current sound speed
+                  if (sound) {
+                    try {
+                      await sound.setRateAsync(speed, true);
+                    } catch (error) {
+                      console.error('Error setting playback speed:', error);
+                    }
+                  }
                 }}
               >
                 <Text style={[
@@ -264,16 +479,116 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     );
   };
 
+  const renderNarratorVoiceModal = () => (
+    <Modal
+      visible={showNarratorModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowNarratorModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.voiceModalContainer, { backgroundColor: backgroundColor }]}>
+          <Text style={[styles.voiceModalTitle, { color: textColor }]}>
+            Narrator Voice
+          </Text>
+
+          {narratorVoices.map((voice) => (
+            <TouchableOpacity
+              key={voice.id}
+              style={[
+                styles.voiceOption,
+                {
+                  backgroundColor: narratorVoice === voice.id
+                    ? '#64b5f6'
+                    : 'transparent',
+                  borderColor: '#64b5f6',
+                }
+              ]}
+              onPress={() => selectNarratorVoice(voice.id)}
+            >
+              <Text style={[
+                styles.voiceOptionText,
+                {
+                  color: narratorVoice === voice.id ? '#000' : textColor,
+                  fontWeight: narratorVoice === voice.id ? 'bold' : 'normal',
+                }
+              ]}>
+                {voice.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          <TouchableOpacity
+            style={styles.voiceModalClose}
+            onPress={() => setShowNarratorModal(false)}
+          >
+            <Text style={[styles.voiceModalCloseText, { color: '#64b5f6' }]}>
+              Close
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderDialogueVoiceModal = () => (
+    <Modal
+      visible={showDialogueModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowDialogueModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.voiceModalContainer, { backgroundColor: backgroundColor }]}>
+          <Text style={[styles.voiceModalTitle, { color: textColor }]}>
+            Dialogue Voice
+          </Text>
+
+          {dialogueVoices.map((voice) => (
+            <TouchableOpacity
+              key={voice.id}
+              style={[
+                styles.voiceOption,
+                {
+                  backgroundColor: dialogueVoice === voice.id
+                    ? '#64b5f6'
+                    : 'transparent',
+                  borderColor: '#64b5f6',
+                }
+              ]}
+              onPress={() => selectDialogueVoice(voice.id)}
+            >
+              <Text style={[
+                styles.voiceOptionText,
+                {
+                  color: dialogueVoice === voice.id ? '#000' : textColor,
+                  fontWeight: dialogueVoice === voice.id ? 'bold' : 'normal',
+                }
+              ]}>
+                {voice.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+
+          <TouchableOpacity
+            style={styles.voiceModalClose}
+            onPress={() => setShowDialogueModal(false)}
+          >
+            <Text style={[styles.voiceModalCloseText, { color: '#64b5f6' }]}>
+              Close
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const renderMiniPlayer = () => {
     if (!showMiniPlayer || activeParagraphIndex === null) return null;
 
     return (
-      <Animated.View style={[styles.miniPlayerContainer, { backgroundColor: backgroundColor }]}>
+      <Animated.View style={styles.miniPlayerContainer}>
         <View style={styles.miniPlayerContent}>
-          <Text style={[styles.miniPlayerTitle, { color: textColor }]}>
-            Paragraph {activeParagraphIndex + 1}
-          </Text>
-
           <View style={styles.miniPlayerControls}>
             {/* Previous Button */}
             <TouchableOpacity
@@ -317,6 +632,21 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
               <MaterialIcons name="skip-next" size={20} color="#fff" />
             </TouchableOpacity>
 
+            {/* Voice Selection Buttons */}
+            <TouchableOpacity
+              style={[styles.miniPlayerVoiceButton, { backgroundColor: '#333' }]}
+              onPress={openNarratorVoiceModal}
+            >
+              <MaterialIcons name="person" size={16} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.miniPlayerVoiceButton, { backgroundColor: '#333' }]}
+              onPress={openDialogueVoiceModal}
+            >
+              <MaterialIcons name="chat" size={16} color="#fff" />
+            </TouchableOpacity>
+
             {/* Speed Button */}
             <TouchableOpacity
               style={[styles.miniPlayerSpeedButton, { backgroundColor: '#333' }]}
@@ -325,6 +655,16 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
               <Text style={styles.miniPlayerSpeedText}>{playbackSpeed}×</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Loading/Audio Status */}
+          {isLoadingAudio && (
+            <View style={styles.audioStatusContainer}>
+              <ActivityIndicator size="small" color="#64b5f6" />
+              <Text style={[styles.audioStatusText, { color: textColor }]}>
+                Generating audio...
+              </Text>
+            </View>
+          )}
 
           {/* Close Button */}
           <TouchableOpacity
@@ -339,40 +679,69 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderSettingsPanel = () => (
-    <View style={[styles.settingsPanel, { backgroundColor: backgroundColor }]}>
-      <View style={styles.settingsRow}>
-        <Text style={[styles.settingsLabel, { color: textColor }]}>Font Size</Text>
-        <View style={styles.fontControls}>
+    <Modal
+      visible={showSettings}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowSettings(false)}
+    >
+      <TouchableOpacity
+        style={styles.settingsModalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowSettings(false)}
+      >
+        <TouchableOpacity
+          style={[styles.settingsPanel, { backgroundColor: backgroundColor }]}
+          activeOpacity={1}
+          onPress={() => {}} // Prevent modal close when tapping inside
+        >
+          {/* Close Button */}
           <TouchableOpacity
-            style={styles.fontButton}
-            onPress={() => adjustFontSize(-2)}
+            style={styles.settingsCloseButton}
+            onPress={() => setShowSettings(false)}
           >
-            <MaterialIcons name="text-decrease" size={20} color={textColor} />
+            <MaterialIcons name="close" size={24} color={textColor} />
           </TouchableOpacity>
-          <Text style={[styles.fontSizeText, { color: textColor }]}>{fontSize}</Text>
-          <TouchableOpacity
-            style={styles.fontButton}
-            onPress={() => adjustFontSize(2)}
-          >
-            <MaterialIcons name="text-increase" size={20} color={textColor} />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <View style={styles.settingsRow}>
-        <Text style={[styles.settingsLabel, { color: textColor }]}>Theme</Text>
-        <TouchableOpacity style={styles.themeButton} onPress={toggleTheme}>
-          <MaterialIcons
-            name={backgroundColor === '#1a1a1a' ? 'light-mode' : 'dark-mode'}
-            size={20}
-            color={textColor}
-          />
-          <Text style={[styles.themeButtonText, { color: textColor }]}>
-            {backgroundColor === '#1a1a1a' ? 'Light' : 'Dark'}
+          <Text style={[styles.settingsPanelTitle, { color: textColor }]}>
+            Reading Settings
           </Text>
+
+          <View style={styles.settingsRow}>
+            <Text style={[styles.settingsLabel, { color: textColor }]}>Font Size</Text>
+            <View style={styles.fontControls}>
+              <TouchableOpacity
+                style={styles.fontButton}
+                onPress={() => adjustFontSize(-2)}
+              >
+                <MaterialIcons name="text-decrease" size={20} color={textColor} />
+              </TouchableOpacity>
+              <Text style={[styles.fontSizeText, { color: textColor }]}>{fontSize}</Text>
+              <TouchableOpacity
+                style={styles.fontButton}
+                onPress={() => adjustFontSize(2)}
+              >
+                <MaterialIcons name="text-increase" size={20} color={textColor} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.settingsRow}>
+            <Text style={[styles.settingsLabel, { color: textColor }]}>Theme</Text>
+            <TouchableOpacity style={styles.themeButton} onPress={toggleTheme}>
+              <MaterialIcons
+                name={backgroundColor === '#1a1a1a' ? 'light-mode' : 'dark-mode'}
+                size={20}
+                color={textColor}
+              />
+              <Text style={[styles.themeButtonText, { color: textColor }]}>
+                {backgroundColor === '#1a1a1a' ? 'Light' : 'Dark'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
-      </View>
-    </View>
+      </TouchableOpacity>
+    </Modal>
   );
 
   if (isLoading) {
@@ -391,7 +760,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         style={styles.scrollView}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingBottom: showMiniPlayer ? 180 : 120 }
+          { paddingBottom: showMiniPlayer ? 100 : 40 }
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -402,9 +771,27 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         {content.map(renderParagraph)}
       </ScrollView>
 
-      {showSettings && renderSettingsPanel()}
+      {renderSettingsPanel()}
       {renderMiniPlayer()}
       {renderSpeedModal()}
+      {renderNarratorVoiceModal()}
+      {renderDialogueVoiceModal()}
+
+      {/* Floating Settings Button */}
+      <TouchableOpacity
+        style={[styles.floatingSettingsButton, { bottom: showMiniPlayer ? 100 : 20 }]}
+        onPress={toggleSettings}
+      >
+        <MaterialIcons name="settings" size={24} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Floating Audio Button */}
+      <TouchableOpacity
+        style={[styles.floatingAudioButton, { bottom: showMiniPlayer ? 160 : 80 }]}
+        onPress={navigateToAudioPlayer}
+      >
+        <MaterialIcons name="headset" size={24} color="#fff" />
+      </TouchableOpacity>
 
     </View>
   );
@@ -434,6 +821,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     minHeight: 50,
+    backgroundColor: '#242424', // Subtle dark shade for distinction
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   paragraph: {
     lineHeight: 24,
@@ -474,23 +864,45 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 5,
   },
+  settingsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   settingsPanel: {
-    position: 'absolute',
-    bottom: 80,
-    left: 20,
-    right: 20,
-    padding: 20,
-    borderRadius: 10,
+    width: '85%',
+    maxWidth: 350,
+    padding: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#404040',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 8,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 15,
+  },
+  settingsCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  settingsPanelTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 24,
+    marginTop: 8,
   },
   settingsRow: {
     flexDirection: 'row',
@@ -539,23 +951,26 @@ const styles = StyleSheet.create({
   // Mini Player Styles
   miniPlayerContainer: {
     position: 'absolute',
-    bottom: 70,
+    bottom: 0,
     left: 0,
     right: 0,
+    backgroundColor: '#252525', // Contrasting dark shade
     borderTopWidth: 1,
-    borderTopColor: '#333',
-    elevation: 10,
+    borderTopColor: '#404040',
+    elevation: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 5,
+    zIndex: 1000,
   },
   miniPlayerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     justifyContent: 'space-between',
+    minHeight: 80,
   },
   miniPlayerTitle: {
     fontSize: 14,
@@ -566,7 +981,9 @@ const styles = StyleSheet.create({
   miniPlayerControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    flex: 1,
+    paddingHorizontal: 16,
   },
   miniPlayerButton: {
     width: 36,
@@ -594,6 +1011,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  miniPlayerVoiceButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  audioStatusText: {
+    fontSize: 12,
+    marginLeft: 8,
+    fontStyle: 'italic',
   },
   miniPlayerClose: {
     width: 32,
@@ -645,6 +1079,77 @@ const styles = StyleSheet.create({
   speedModalCloseText: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Voice Modal Styles
+  voiceModalContainer: {
+    width: '80%',
+    maxWidth: 320,
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  voiceModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  voiceOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  voiceModalClose: {
+    marginTop: 16,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceModalCloseText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Floating Action Buttons
+  floatingSettingsButton: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#64b5f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 999,
+  },
+  floatingAudioButton: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FF9800',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 999,
   },
 });
 
