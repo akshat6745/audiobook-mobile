@@ -45,25 +45,26 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [showNarratorModal, setShowNarratorModal] = useState(false);
   const [showDialogueModal, setShowDialogueModal] = useState(false);
   const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
-  const [dialogueVoice, setDialogueVoice] = useState("en-US-AriaNeural");
+  const [dialogueVoice, setDialogueVoice] = useState("en-US-AvaMultilingualNeural");
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [audioStatus, setAudioStatus] = useState<any>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const { user } = useAuth();
 
-  // Voice options
-  const narratorVoices = [
-    { id: "en-US-ChristopherNeural", name: "Christopher (Deep)" },
-    { id: "en-US-EricNeural", name: "Eric (Warm)" },
-    { id: "en-US-GuyNeural", name: "Guy (Clear)" }
+  // Voice options - Updated comprehensive list
+  const VOICE_OPTIONS = [
+    { label: "Ava (Female, US)", value: "en-US-AvaMultilingualNeural" },
+    { label: "Christopher (Male, US)", value: "en-US-ChristopherNeural" },
+    { label: "Jenny (Female, US)", value: "en-US-JennyNeural" },
+    { label: "Sonia (Female, UK)", value: "en-GB-SoniaNeural" },
+    { label: "Ryan (Male, UK)", value: "en-GB-RyanNeural" },
+    { label: "Andrew (Male, US, Multilingual)", value: "en-US-AndrewMultilingualNeural" },
+    { label: "Emma (Female, US, Multilingual)", value: "en-US-EmmaMultilingualNeural" },
   ];
 
-  const dialogueVoices = [
-    { id: "en-US-AriaNeural", name: "Aria (Natural)" },
-    { id: "en-US-JennyNeural", name: "Jenny (Expressive)" },
-    { id: "en-US-MichelleNeural", name: "Michelle (Friendly)" }
-  ];
+  const narratorVoices = VOICE_OPTIONS;
+  const dialogueVoices = VOICE_OPTIONS;
 
   useEffect(() => {
     loadChapterContent();
@@ -237,11 +238,11 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
               encoding: FileSystem.EncodingType.Base64,
             });
 
-            // Load the audio file with Expo AV
+            // Load the audio file with Expo AV and auto-play
             const { sound: newSound } = await Audio.Sound.createAsync(
               { uri: fileUri },
               {
-                shouldPlay: false,
+                shouldPlay: true, // Auto-play when audio loads
                 rate: playbackSpeed,
                 shouldCorrectPitch: true
               },
@@ -249,6 +250,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
             );
 
             setSound(newSound);
+            setIsPlaying(true); // Update playing state
           } catch (fileError) {
             console.error('Error writing audio file:', fileError);
             Alert.alert(
@@ -308,6 +310,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       const newIndex = activeParagraphIndex - 1;
       setActiveParagraphIndex(newIndex);
       setIsPlaying(false);
+      // Auto-play new paragraph
       await loadParagraphAudio(newIndex);
     }
   };
@@ -317,6 +320,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       const newIndex = activeParagraphIndex + 1;
       setActiveParagraphIndex(newIndex);
       setIsPlaying(false);
+      // Auto-play new paragraph
       await loadParagraphAudio(newIndex);
     }
   };
@@ -345,22 +349,24 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setShowDialogueModal(true);
   };
 
-  const selectNarratorVoice = async (voiceId: string) => {
-    setNarratorVoice(voiceId);
+  const selectNarratorVoice = async (voiceValue: string) => {
+    setNarratorVoice(voiceValue);
     setShowNarratorModal(false);
 
-    // Regenerate audio with new voice if paragraph is active
+    // Regenerate and auto-play audio with new voice if paragraph is active
     if (activeParagraphIndex !== null) {
+      setIsPlaying(false); // Stop current audio
       await loadParagraphAudio(activeParagraphIndex);
     }
   };
 
-  const selectDialogueVoice = async (voiceId: string) => {
-    setDialogueVoice(voiceId);
+  const selectDialogueVoice = async (voiceValue: string) => {
+    setDialogueVoice(voiceValue);
     setShowDialogueModal(false);
 
-    // Regenerate audio with new voice if paragraph is active
+    // Regenerate and auto-play audio with new voice if paragraph is active
     if (activeParagraphIndex !== null) {
+      setIsPlaying(false); // Stop current audio
       await loadParagraphAudio(activeParagraphIndex);
     }
   };
@@ -494,26 +500,26 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
           {narratorVoices.map((voice) => (
             <TouchableOpacity
-              key={voice.id}
+              key={voice.value}
               style={[
                 styles.voiceOption,
                 {
-                  backgroundColor: narratorVoice === voice.id
+                  backgroundColor: narratorVoice === voice.value
                     ? '#64b5f6'
                     : 'transparent',
                   borderColor: '#64b5f6',
                 }
               ]}
-              onPress={() => selectNarratorVoice(voice.id)}
+              onPress={() => selectNarratorVoice(voice.value)}
             >
               <Text style={[
                 styles.voiceOptionText,
                 {
-                  color: narratorVoice === voice.id ? '#000' : textColor,
-                  fontWeight: narratorVoice === voice.id ? 'bold' : 'normal',
+                  color: narratorVoice === voice.value ? '#000' : textColor,
+                  fontWeight: narratorVoice === voice.value ? 'bold' : 'normal',
                 }
               ]}>
-                {voice.name}
+                {voice.label}
               </Text>
             </TouchableOpacity>
           ))}
@@ -546,26 +552,26 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
           {dialogueVoices.map((voice) => (
             <TouchableOpacity
-              key={voice.id}
+              key={voice.value}
               style={[
                 styles.voiceOption,
                 {
-                  backgroundColor: dialogueVoice === voice.id
+                  backgroundColor: dialogueVoice === voice.value
                     ? '#64b5f6'
                     : 'transparent',
                   borderColor: '#64b5f6',
                 }
               ]}
-              onPress={() => selectDialogueVoice(voice.id)}
+              onPress={() => selectDialogueVoice(voice.value)}
             >
               <Text style={[
                 styles.voiceOptionText,
                 {
-                  color: dialogueVoice === voice.id ? '#000' : textColor,
-                  fontWeight: dialogueVoice === voice.id ? 'bold' : 'normal',
+                  color: dialogueVoice === voice.value ? '#000' : textColor,
+                  fontWeight: dialogueVoice === voice.value ? 'bold' : 'normal',
                 }
               ]}>
-                {voice.name}
+                {voice.label}
               </Text>
             </TouchableOpacity>
           ))}
