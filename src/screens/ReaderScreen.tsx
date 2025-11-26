@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,12 +14,11 @@ import {
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system/legacy';
 import { chapterAPI, userAPI } from '../services/api';
-import api from '../services/api';
 import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { AudioCacheManager } from '../services/AudioCacheManager';
+import { AudioPlayerManager, AudioPlayerState } from '../services/AudioPlayerManager';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
@@ -46,11 +45,21 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [showDialogueModal, setShowDialogueModal] = useState(false);
   const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
   const [dialogueVoice, setDialogueVoice] = useState("en-US-AvaMultilingualNeural");
-  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [audioStatus, setAudioStatus] = useState<any>(null);
+  const [audioPlayerState, setAudioPlayerState] = useState<AudioPlayerState>({
+    isPlaying: false,
+    currentIndex: null,
+    isLoading: false,
+    duration: 0,
+    position: 0,
+    playbackSpeed: 1.0,
+  });
+
   const scrollViewRef = useRef<ScrollView>(null);
+  const audioCacheManager = useRef<AudioCacheManager | null>(null);
+  const audioPlayerManager = useRef<AudioPlayerManager | null>(null);
   const { user } = useAuth();
+
+  // Audio system handled by AudioCacheManager and AudioPlayerManager
 
   // Voice options - Updated comprehensive list
   const VOICE_OPTIONS = [
@@ -69,38 +78,84 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => {
     loadChapterContent();
     saveProgress();
-    initializeAudio();
+    initializeAudioSystem();
 
     return () => {
-      // Cleanup audio when component unmounts
-      if (sound) {
-        sound.unloadAsync();
-      }
+      cleanupAudioSystem();
     };
   }, [chapter]);
 
-  // Monitor audio status
+  // Re-initialize audio system when voices change
   useEffect(() => {
-    if (audioStatus) {
-      if (audioStatus.didJustFinish) {
-        setIsPlaying(false);
-      }
-      setIsPlaying(audioStatus.isPlaying || false);
+    if (audioCacheManager.current && audioPlayerManager.current) {
+      audioCacheManager.current.updateVoices(narratorVoice, dialogueVoice);
     }
-  }, [audioStatus]);
+  }, [narratorVoice, dialogueVoice]);
 
-  const initializeAudio = async () => {
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-    } catch (error) {
-      console.error('Error initializing audio:', error);
+  const initializeAudioSystem = async () => {
+    console.log('🎵 Initializing new audio system');
+
+    // Create audio cache manager
+    audioCacheManager.current = new AudioCacheManager(
+      narratorVoice,
+      dialogueVoice,
+      {
+        maxCacheSize: 20,
+        preloadCharacterThreshold: 1000,
+        maxPreloadDistance: 8,
+        cacheExpiryMs: 30 * 60 * 1000,
+      }
+    );
+
+    // Create audio player manager
+    audioPlayerManager.current = new AudioPlayerManager(audioCacheManager.current);
+
+    // Set up callbacks
+    audioPlayerManager.current.setCallbacks({
+      onStateChange: (state) => {
+        console.log('🔄 Audio state changed:', state);
+        setAudioPlayerState(state);
+        setActiveParagraphIndex(state.currentIndex);
+        setIsPlaying(state.isPlaying);
+
+        if (state.currentIndex !== null) {
+          setShowMiniPlayer(true);
+        }
+      },
+      onAutoAdvance: (fromIndex, toIndex) => {
+        console.log(`⏭️ Auto-advancing from ${fromIndex} to ${toIndex}`);
+        if (toIndex < content.length) {
+          handleParagraphPress(toIndex);
+        }
+      },
+      onError: (error) => {
+        console.error('🚨 Audio player error:', error);
+        Alert.alert('Audio Error', error.message);
+      },
+    });
+
+    // Configure auto-advance
+    audioPlayerManager.current.configureAutoAdvance({
+      enabled: true,
+      delayMs: 500,
+    });
+
+    console.log('✅ Audio system initialized');
+  };
+
+  const cleanupAudioSystem = async () => {
+    console.log('🧹 Cleaning up audio system');
+
+    if (audioPlayerManager.current) {
+      await audioPlayerManager.current.cleanup();
     }
+
+    if (audioCacheManager.current) {
+      audioCacheManager.current.clearCache();
+    }
+
+    audioPlayerManager.current = null;
+    audioCacheManager.current = null;
   };
 
   const loadChapterContent = async () => {
@@ -184,144 +239,63 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleParagraphPress = async (index: number) => {
-    setActiveParagraphIndex(index);
-    setShowMiniPlayer(true);
-    setIsPlaying(false);
+    console.log('🎯 handleParagraphPress called for index:', index);
 
-    // Load audio for this paragraph
-    await loadParagraphAudio(index);
-  };
-
-  const loadParagraphAudio = async (index: number) => {
-    if (!content[index]) return;
+    if (!audioPlayerManager.current || !content[index]) {
+      console.warn('Audio system not ready or invalid index');
+      return;
+    }
 
     try {
-      setIsLoadingAudio(true);
-      const paragraphText = content[index];
+      const success = await audioPlayerManager.current.playParagraph(
+        index,
+        content[index],
+        content
+      );
 
-      // Unload previous sound
-      if (sound) {
-        await sound.unloadAsync();
-        setSound(null);
-      }
-
-      // Make API request to get audio
-      const response = await fetch(`${api.defaults.baseURL}/tts-dual-voice`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: paragraphText,
-          paragraphVoice: narratorVoice,
-          dialogueVoice: dialogueVoice
-        })
-      });
-
-      if (response.ok) {
-        // Get the audio as a blob
-        const audioBlob = await response.blob();
-
-        // Create a temporary file
-        const fileUri = `${FileSystem.cacheDirectory}audio_${Date.now()}.mp3`;
-
-        // Convert blob to base64
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-
-        reader.onload = async () => {
-          try {
-            const base64Data = (reader.result as string).split(',')[1];
-
-            // Write the file using legacy API which is more stable
-            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-
-            // Load the audio file with Expo AV and auto-play
-            const { sound: newSound } = await Audio.Sound.createAsync(
-              { uri: fileUri },
-              {
-                shouldPlay: true, // Auto-play when audio loads
-                rate: playbackSpeed,
-                shouldCorrectPitch: true
-              },
-              (status) => setAudioStatus(status)
-            );
-
-            setSound(newSound);
-            setIsPlaying(true); // Update playing state
-          } catch (fileError) {
-            console.error('Error writing audio file:', fileError);
-            Alert.alert(
-              'Audio Error',
-              'Failed to save audio file. Please try again.',
-              [{ text: 'OK' }]
-            );
-          }
-        };
-
-        reader.onerror = () => {
-          console.error('Error reading audio blob');
-          Alert.alert(
-            'Audio Error',
-            'Failed to process audio data. Please try again.',
-            [{ text: 'OK' }]
-          );
-        };
+      if (success) {
+        console.log(`✅ Successfully started playing paragraph ${index}`);
       } else {
-        console.error('Failed to generate audio:', response.status);
-        Alert.alert(
-          'Audio Generation Failed',
-          'Could not generate audio for this paragraph. Please try again.',
-          [{ text: 'OK' }]
-        );
+        console.warn(`⚠️ Failed to start playing paragraph ${index}`);
       }
     } catch (error) {
-      console.error('Error generating audio:', error);
-      Alert.alert(
-        'Audio Error',
-        'Failed to connect to audio service. Please check your connection.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setIsLoadingAudio(false);
+      console.error(`❌ Error playing paragraph ${index}:`, error);
+      Alert.alert('Audio Error', `Failed to play paragraph: ${error.message}`);
     }
   };
 
+  // Old loadParagraphAudio function removed - using new AudioPlayerManager
+
+  // Old preloading functions removed - using new AudioCacheManager
+
   const togglePlayback = async () => {
-    if (sound && !isLoadingAudio) {
-      try {
-        if (isPlaying) {
-          await sound.pauseAsync();
-          setIsPlaying(false);
-        } else {
-          await sound.playAsync();
-          setIsPlaying(true);
-        }
-      } catch (error) {
-        console.error('Error controlling playback:', error);
+    if (audioPlayerManager.current) {
+      const success = await audioPlayerManager.current.togglePlayback();
+      if (!success) {
+        console.warn('Failed to toggle playback');
       }
     }
   };
 
   const goToPreviousParagraph = async () => {
-    if (activeParagraphIndex !== null && activeParagraphIndex > 0) {
-      const newIndex = activeParagraphIndex - 1;
-      setActiveParagraphIndex(newIndex);
-      setIsPlaying(false);
-      // Auto-play new paragraph
-      await loadParagraphAudio(newIndex);
+    const currentIndex = audioPlayerState.currentIndex;
+
+    if (currentIndex !== null && currentIndex > 0) {
+      const newIndex = currentIndex - 1;
+      console.log('⬅️ goToPreviousParagraph: Moving to index', newIndex);
+      await handleParagraphPress(newIndex);
     }
   };
 
   const goToNextParagraph = async () => {
-    if (activeParagraphIndex !== null && activeParagraphIndex < content.length - 1) {
-      const newIndex = activeParagraphIndex + 1;
-      setActiveParagraphIndex(newIndex);
-      setIsPlaying(false);
-      // Auto-play new paragraph
-      await loadParagraphAudio(newIndex);
+    const currentIndex = audioPlayerState.currentIndex;
+
+    if (currentIndex !== null && currentIndex < content.length - 1) {
+      const newIndex = currentIndex + 1;
+      console.log('➡️ goToNextParagraph: Moving to index', newIndex);
+      await handleParagraphPress(newIndex);
+    } else {
+      console.log('goToNextParagraph: Cannot advance - currentIndex:', currentIndex, 'contentLength:', content.length);
     }
   };
 
@@ -330,14 +304,9 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setIsPlaying(false);
     setActiveParagraphIndex(null);
 
-    // Clean up sound
-    if (sound) {
-      try {
-        await sound.unloadAsync();
-        setSound(null);
-      } catch (error) {
-        console.error('Error unloading sound:', error);
-      }
+    // Clean up audio player
+    if (audioPlayerManager.current) {
+      await audioPlayerManager.current.cleanup();
     }
   };
 
@@ -353,10 +322,14 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setNarratorVoice(voiceValue);
     setShowNarratorModal(false);
 
-    // Regenerate and auto-play audio with new voice if paragraph is active
-    if (activeParagraphIndex !== null) {
-      setIsPlaying(false); // Stop current audio
-      await loadParagraphAudio(activeParagraphIndex);
+    // Update cache manager with new voice
+    if (audioCacheManager.current) {
+      audioCacheManager.current.updateVoices(voiceValue, dialogueVoice);
+    }
+
+    // Replay current paragraph with new voice
+    if (audioPlayerState.currentIndex !== null) {
+      await handleParagraphPress(audioPlayerState.currentIndex);
     }
   };
 
@@ -364,21 +337,28 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setDialogueVoice(voiceValue);
     setShowDialogueModal(false);
 
-    // Regenerate and auto-play audio with new voice if paragraph is active
-    if (activeParagraphIndex !== null) {
-      setIsPlaying(false); // Stop current audio
-      await loadParagraphAudio(activeParagraphIndex);
+    // Update cache manager with new voice
+    if (audioCacheManager.current) {
+      audioCacheManager.current.updateVoices(narratorVoice, voiceValue);
+    }
+
+    // Replay current paragraph with new voice
+    if (audioPlayerState.currentIndex !== null) {
+      await handleParagraphPress(audioPlayerState.currentIndex);
     }
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
-    const isActive = activeParagraphIndex === index;
+    const isActive = audioPlayerState.currentIndex === index;
 
     return (
       <TouchableOpacity
         key={index}
         activeOpacity={0.7}
-        onPress={() => handleParagraphPress(index)}
+        onPress={() => {
+          console.log('Paragraph pressed! Index:', index);
+          handleParagraphPress(index);
+        }}
         style={[
           styles.paragraphContainer,
           {
@@ -449,13 +429,9 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                   setPlaybackSpeed(speed);
                   setShowSpeedModal(false);
 
-                  // Update current sound speed
-                  if (sound) {
-                    try {
-                      await sound.setRateAsync(speed, true);
-                    } catch (error) {
-                      console.error('Error setting playback speed:', error);
-                    }
+                  // Update playback speed in audio player
+                  if (audioPlayerManager.current) {
+                    await audioPlayerManager.current.setPlaybackSpeed(speed);
                   }
                 }}
               >
@@ -663,7 +639,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           </View>
 
           {/* Loading/Audio Status */}
-          {isLoadingAudio && (
+          {audioPlayerState.isLoading && (
             <View style={styles.audioStatusContainer}>
               <ActivityIndicator size="small" color="#64b5f6" />
               <Text style={[styles.audioStatusText, { color: textColor }]}>
@@ -773,8 +749,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         <Text style={[styles.chapterTitle, { color: textColor }]}>
           Chapter {chapter.chapterNumber}: {chapter.chapterTitle}
         </Text>
-
-        {content.map(renderParagraph)}
+        {content.map((paragraph, index) => renderParagraph(paragraph, index))}
       </ScrollView>
 
       {renderSettingsPanel()}

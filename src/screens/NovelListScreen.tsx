@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -133,9 +133,9 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
     setFilteredNovels(filtered);
   };
 
-  const handleNovelPress = (novel: Novel) => {
+  const handleNovelPress = useCallback((novel: Novel) => {
     navigation.navigate('ChapterList', { novel });
-  };
+  }, [navigation]);
 
   const getSourceIcon = (source: string) => {
     return source === 'epub_upload' ? 'book' : 'language';
@@ -162,7 +162,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
     >
       <TouchableOpacity onPress={() => handleNovelPress(item)}>
         <LinearGradient
-          colors={[Theme.colors.neutral.white, Theme.colors.neutral[50]]}
+          colors={['#2a2a2a', '#252525']}
           style={styles.cardGradient}
         >
           <View style={styles.novelHeader}>
@@ -179,13 +179,13 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
                 </Text>
               )}
             </View>
-            <MaterialIcons name="chevron-right" size={24} color={Theme.colors.neutral[400]} />
+            <MaterialIcons name="chevron-right" size={24} color="#666" />
           </View>
 
           <View style={styles.novelFooter}>
             {item.chapterCount && (
               <View style={styles.chapterInfo}>
-                <MaterialIcons name="menu-book" size={16} color={Theme.colors.neutral[500]} />
+                <MaterialIcons name="menu-book" size={16} color="#999" />
                 <Text style={styles.chapterCount}>
                   {item.chapterCount} chapters
                 </Text>
@@ -205,7 +205,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <View style={styles.emptyIconContainer}>
-        <MaterialIcons name="library-books" size={64} color={Theme.colors.neutral[300]} />
+        <MaterialIcons name="library-books" size={64} color="#666" />
       </View>
       <Text style={styles.emptyStateText}>
         {searchQuery ? 'No novels found matching your search' : 'No novels available'}
@@ -307,7 +307,7 @@ const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Theme.colors.neutral[50],
+    backgroundColor: '#1a1a1a',
   },
   header: {
     paddingTop: 50,
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Theme.colors.neutral.white,
+    backgroundColor: '#2a2a2a',
     paddingHorizontal: Theme.spacing.md,
     paddingVertical: Theme.spacing.sm,
     borderRadius: Theme.borderRadius.xl,
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: Theme.typography.fontSizes.md,
-    color: Theme.colors.neutral[800],
+    color: '#fff',
     paddingVertical: Theme.spacing.sm,
   },
   clearButton: {
@@ -389,13 +389,13 @@ const styles = StyleSheet.create({
   novelTitle: {
     fontSize: Theme.typography.fontSizes.lg,
     fontWeight: Theme.typography.fontWeights.semibold,
-    color: Theme.colors.neutral[900],
+    color: '#fff',
     marginBottom: Theme.spacing.xs,
     lineHeight: Theme.typography.lineHeights.tight * Theme.typography.fontSizes.lg,
   },
   novelAuthor: {
     fontSize: Theme.typography.fontSizes.sm,
-    color: Theme.colors.neutral[600],
+    color: '#aaa',
   },
   novelFooter: {
     flexDirection: 'row',
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   },
   chapterCount: {
     fontSize: Theme.typography.fontSizes.xs,
-    color: Theme.colors.neutral[500],
+    color: '#999',
     marginLeft: Theme.spacing.xs,
     fontWeight: Theme.typography.fontWeights.medium,
   },
@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: Theme.colors.neutral[100],
+    backgroundColor: '#2a2a2a',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Theme.spacing.lg,
@@ -454,13 +454,13 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: Theme.typography.fontSizes.lg,
     fontWeight: Theme.typography.fontWeights.semibold,
-    color: Theme.colors.neutral[700],
+    color: '#fff',
     textAlign: 'center',
     marginBottom: Theme.spacing.sm,
   },
   emptyStateSubtext: {
     fontSize: Theme.typography.fontSizes.md,
-    color: Theme.colors.neutral[500],
+    color: '#aaa',
     textAlign: 'center',
     lineHeight: Theme.typography.lineHeights.relaxed * Theme.typography.fontSizes.md,
   },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -82,13 +82,13 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
     setRefreshing(false);
   };
 
-  const handleChapterPress = (chapter: Chapter, mode: 'read' | 'audio') => {
+  const handleChapterPress = useCallback((chapter: Chapter, mode: 'read' | 'audio') => {
     if (mode === 'read') {
       navigation.navigate('Reader', { novel, chapter });
     } else {
       navigation.navigate('AudioPlayer', { novel, chapter });
     }
-  };
+  }, [navigation, novel]);
 
   const renderChapter = ({ item }: { item: Chapter }) => {
     const isLastRead = lastReadChapter === item.chapterNumber;
@@ -202,7 +202,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Theme.colors.neutral[50],
+    backgroundColor: '#1a1a1a',
   },
   header: {
     paddingTop: 60,
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     padding: Theme.spacing.lg,
   },
   chapterCard: {
-    backgroundColor: Theme.colors.neutral.white,
+    backgroundColor: '#2a2a2a',
     borderRadius: Theme.borderRadius.xl,
     marginBottom: Theme.spacing.md,
     flexDirection: 'row',
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   chapterNumber: {
     fontSize: Theme.typography.fontSizes.sm,
     fontWeight: Theme.typography.fontWeights.bold,
-    color: Theme.colors.primary[600],
+    color: '#64b5f6',
   },
   lastReadBadge: {
     backgroundColor: Theme.colors.success[500],
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   chapterTitle: {
     fontSize: Theme.typography.fontSizes.md,
-    color: Theme.colors.neutral[800],
+    color: '#fff',
     lineHeight: Theme.typography.lineHeights.normal * Theme.typography.fontSizes.md,
     fontWeight: Theme.typography.fontWeights.medium,
   },
@@ -314,14 +314,14 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: Theme.typography.fontSizes.lg,
     fontWeight: Theme.typography.fontWeights.semibold,
-    color: Theme.colors.neutral[700],
+    color: '#fff',
     textAlign: 'center',
     marginTop: Theme.spacing.md,
     marginBottom: Theme.spacing.sm,
   },
   emptyStateSubtext: {
     fontSize: Theme.typography.fontSizes.md,
-    color: Theme.colors.neutral[500],
+    color: '#aaa',
     textAlign: 'center',
     lineHeight: Theme.typography.lineHeights.relaxed * Theme.typography.fontSizes.md,
   },
