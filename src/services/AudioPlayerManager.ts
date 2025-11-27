@@ -31,6 +31,7 @@ export class AudioPlayerManager {
 
   // Prevent multiple simultaneous operations
   private operationLock: boolean = false;
+  private completionHandled: boolean = false;
 
   constructor(cacheManager: AudioCacheManager) {
     this.cacheManager = cacheManager;
@@ -137,6 +138,9 @@ export class AudioPlayerManager {
   private async createAndPlaySound(audioData: ParagraphAudioData): Promise<void> {
     console.log(`🔊 Creating sound for paragraph ${audioData.paragraph_index}`);
 
+    // Reset completion handler for new audio
+    this.completionHandled = false;
+
     const { sound } = await Audio.Sound.createAsync(
       { uri: audioData.audio_uri! },
       {
@@ -173,8 +177,14 @@ export class AudioPlayerManager {
       this.isPlaying = status.isPlaying || false;
 
       // Handle audio completion
-      if (status.didJustFinish || this.isAudioComplete(status)) {
-        console.log(`✅ Audio completed for paragraph ${paragraphIndex}`);
+      const audioCompleted = status.didJustFinish || this.isAudioComplete(status);
+      if (audioCompleted) {
+        console.log(`✅ Audio completed for paragraph ${paragraphIndex}`, {
+          didJustFinish: status.didJustFinish,
+          isAudioComplete: this.isAudioComplete(status),
+          position: status.positionMillis,
+          duration: status.durationMillis
+        });
         this.handleAudioCompletion(paragraphIndex);
       }
 
@@ -186,24 +196,47 @@ export class AudioPlayerManager {
    * Check if audio is complete using multiple methods
    */
   private isAudioComplete(status: any): boolean {
-    return !status.isPlaying &&
+    const isComplete = !status.isPlaying &&
            status.positionMillis &&
            status.durationMillis &&
-           status.positionMillis >= status.durationMillis - 100;
+           status.positionMillis >= status.durationMillis - 500; // Increased threshold for better detection
+
+    if (status.positionMillis && status.durationMillis) {
+      const progress = status.positionMillis / status.durationMillis;
+      console.log(`🎵 Audio progress: ${Math.round(progress * 100)}% (${status.positionMillis}ms / ${status.durationMillis}ms), isPlaying: ${status.isPlaying}, complete: ${isComplete}`);
+    }
+
+    return isComplete;
   }
 
   /**
    * Handle audio completion and auto-advance
    */
   private handleAudioCompletion(paragraphIndex: number): void {
+    // Prevent multiple completion events for the same audio
+    if (this.completionHandled) {
+      console.log(`⚠️ Audio completion already handled for paragraph ${paragraphIndex}, skipping`);
+      return;
+    }
+
+    this.completionHandled = true;
     this.isPlaying = false;
 
+    console.log(`🏁 Audio completion detected for paragraph ${paragraphIndex}`, {
+      autoAdvanceEnabled: this.autoAdvanceConfig.enabled,
+      hasCallback: !!this.onAutoAdvance,
+      delayMs: this.autoAdvanceConfig.delayMs
+    });
+
     if (this.autoAdvanceConfig.enabled) {
-      console.log(`⏭️ Auto-advancing from paragraph ${paragraphIndex}`);
+      console.log(`⏭️ Auto-advancing from paragraph ${paragraphIndex} to ${paragraphIndex + 1}`);
 
       setTimeout(() => {
+        console.log(`🎯 Executing auto-advance callback: ${paragraphIndex} -> ${paragraphIndex + 1}`);
         this.onAutoAdvance?.(paragraphIndex, paragraphIndex + 1);
       }, this.autoAdvanceConfig.delayMs);
+    } else {
+      console.log(`❌ Auto-advance disabled or no callback available`);
     }
   }
 
