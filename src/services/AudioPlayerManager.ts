@@ -25,7 +25,7 @@ export class AudioPlayerManager {
   private isPlaying: boolean = false;
   private isLoading: boolean = false;
   private playbackSpeed: number = 1.0;
-  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 10 }; // Ultra-fast transition
+  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 1 }; // Ultra-fast transition - now 1ms
 
   // Callbacks
   private onStateChange?: (state: AudioPlayerState) => void;
@@ -225,23 +225,24 @@ export class AudioPlayerManager {
       // Update playing state
       this.isPlaying = status.isPlaying || false;
 
-      // Ultra-early preload trigger at 70% completion for instant transitions
+      // Speed-adaptive early preload - earlier triggers for faster playback
+      const preloadThreshold = Math.max(0.5, 0.9 - (this.playbackSpeed * 0.2)); // 50% at 2x, 70% at 1x
       if (!earlyPreloadTriggered &&
           status.positionMillis &&
           status.durationMillis &&
-          status.positionMillis / status.durationMillis >= 0.7) {
+          status.positionMillis / status.durationMillis >= preloadThreshold) {
         earlyPreloadTriggered = true;
         const nextIndex = paragraphIndex + 1;
         if (!this.cacheManager.isAudioReady(nextIndex)) {
-          console.log(`⚡ Ultra-early preload trigger at 70% for instant transition to paragraph ${nextIndex}`);
+          console.log(`⚡ Speed-adaptive preload trigger at ${Math.round(preloadThreshold*100)}% (${this.playbackSpeed}x speed) for paragraph ${nextIndex}`);
           // This will be handled by existing preload logic
         }
       }
 
-      // Handle audio completion
+      // Speed-adaptive completion detection - more aggressive at higher speeds
       const audioCompleted = status.didJustFinish || this.isAudioComplete(status);
       if (audioCompleted) {
-        console.log(`✅ Audio completed for paragraph ${paragraphIndex}`, {
+        console.log(`✅ Audio completed for paragraph ${paragraphIndex} (${this.playbackSpeed}x speed)`, {
           didJustFinish: status.didJustFinish,
           isAudioComplete: this.isAudioComplete(status),
           position: status.positionMillis,
@@ -258,14 +259,19 @@ export class AudioPlayerManager {
    * Check if audio is complete using multiple methods
    */
   private isAudioComplete(status: any): boolean {
+    if (!status.positionMillis || !status.durationMillis) return false;
+
+    // Speed-adaptive completion threshold - more aggressive at higher speeds
+    const speedMultiplier = Math.min(this.playbackSpeed, 2.5); // Cap at 2.5x for safety
+    const baseThreshold = 30;
+    const adaptiveThreshold = baseThreshold + (speedMultiplier - 1) * 50; // Up to 105ms at 2.5x speed
+
     const isComplete = !status.isPlaying &&
-           status.positionMillis &&
-           status.durationMillis &&
-           status.positionMillis >= status.durationMillis - 30; // Ultra-aggressive threshold for instant transitions
+           status.positionMillis >= status.durationMillis - adaptiveThreshold;
 
     // Only log completion events to reduce overhead during transitions
-    if (isComplete && status.positionMillis && status.durationMillis) {
-      console.log(`🎯 Completion detected: ${Math.round((status.positionMillis / status.durationMillis) * 100)}%`);
+    if (isComplete) {
+      console.log(`🎯 Speed-adaptive completion (${this.playbackSpeed}x): ${Math.round((status.positionMillis / status.durationMillis) * 100)}% (threshold: ${adaptiveThreshold}ms)`);
     }
 
     return isComplete;
@@ -303,11 +309,19 @@ export class AudioPlayerManager {
         console.log(`🎯 Executing INSTANT auto-advance: ${paragraphIndex} -> ${nextIndex}`);
         this.onAutoAdvance?.(paragraphIndex, nextIndex);
       } else {
-        // Next paragraph not ready, use minimal delay
-        setTimeout(() => {
-          console.log(`🎯 Executing minimal-delay auto-advance: ${paragraphIndex} -> ${nextIndex}`);
+        // Speed-adaptive delay - faster speeds get even shorter delays
+        const speedAdaptedDelay = Math.max(0, this.autoAdvanceConfig.delayMs - (this.playbackSpeed - 1) * 0.5);
+
+        if (speedAdaptedDelay <= 0) {
+          // Immediate execution for very fast speeds
+          console.log(`🎯 Executing immediate auto-advance for high speed (${this.playbackSpeed}x): ${paragraphIndex} -> ${nextIndex}`);
           this.onAutoAdvance?.(paragraphIndex, nextIndex);
-        }, this.autoAdvanceConfig.delayMs);
+        } else {
+          setTimeout(() => {
+            console.log(`🎯 Executing speed-adapted auto-advance (${speedAdaptedDelay}ms at ${this.playbackSpeed}x): ${paragraphIndex} -> ${nextIndex}`);
+            this.onAutoAdvance?.(paragraphIndex, nextIndex);
+          }, speedAdaptedDelay);
+        }
       }
     } else {
       console.log(`❌ Auto-advance disabled or no callback available`);
@@ -356,6 +370,12 @@ export class AudioPlayerManager {
 
     this.playbackSpeed = clampedSpeed;
 
+    // Update auto-advance timing for current speed
+    this.updateAutoAdvanceForSpeed(clampedSpeed);
+
+    // Update cache manager with new speed for adaptive preloading
+    this.cacheManager.setPlaybackSpeed(clampedSpeed);
+
     if (this.sound && !this.operationLock) {
       try {
         // Platform-specific pitch correction implementation
@@ -393,6 +413,19 @@ export class AudioPlayerManager {
     } else {
       console.log(`⏳ Speed ${clampedSpeed}x queued (sound not ready or operation locked)`);
     }
+  }
+
+  /**
+   * Update auto-advance configuration based on playback speed
+   */
+  private updateAutoAdvanceForSpeed(speed: number): void {
+    // More aggressive timing for higher speeds
+    const baseDelay = 1; // Base 1ms delay
+    const speedAdjustedDelay = Math.max(0, baseDelay - (speed - 1) * 0.5);
+
+    this.autoAdvanceConfig.delayMs = speedAdjustedDelay;
+
+    console.log(`⚡ Auto-advance timing updated for ${speed}x speed: ${speedAdjustedDelay}ms delay`);
   }
 
   /**

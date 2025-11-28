@@ -28,6 +28,7 @@ export class AudioCacheManager {
   private narratorVoice: string;
   private dialogueVoice: string;
   private config: AudioCacheConfig;
+  private currentPlaybackSpeed: number = 1.0; // Track current playback speed
 
   constructor(
     narratorVoice: string,
@@ -58,8 +59,8 @@ export class AudioCacheManager {
     const cached = this.cache.get(paragraphIndex);
     if (cached?.audio_received && cached.audio_uri) {
       console.log(`✅ Using cached audio for paragraph ${paragraphIndex}`);
-      // Trigger preload for upcoming paragraphs (non-blocking)
-      this.triggerPreload(paragraphIndex, allParagraphs);
+      // Trigger preload for upcoming paragraphs (non-blocking) with current speed
+      this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
       return cached;
     }
 
@@ -71,8 +72,8 @@ export class AudioCacheManager {
         const loadedData = this.cache.get(paragraphIndex);
         if (loadedData?.audio_received && loadedData.audio_uri) {
           console.log(`✅ Audio ready after wait for paragraph ${paragraphIndex}`);
-          // Trigger preload (non-blocking)
-          this.triggerPreload(paragraphIndex, allParagraphs);
+          // Trigger preload (non-blocking) with current speed
+          this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
           return loadedData;
         }
       } catch (error) {
@@ -84,9 +85,9 @@ export class AudioCacheManager {
     console.log(`📡 Loading new audio for paragraph ${paragraphIndex}`);
     const audioData = await this.loadAudioForParagraph(paragraphIndex, paragraphText);
 
-    // Trigger preload for upcoming paragraphs (non-blocking)
+    // Trigger preload for upcoming paragraphs (non-blocking) with current speed
     if (audioData?.audio_received) {
-      this.triggerPreload(paragraphIndex, allParagraphs);
+      this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
     }
 
     return audioData;
@@ -226,8 +227,10 @@ export class AudioCacheManager {
   /**
    * Intelligent preloading based on character count threshold (non-blocking)
    */
-  private triggerPreload(currentIndex: number, allParagraphs: string[]): void {
-    // Make this completely non-blocking and immediate for better performance
+  private triggerPreload(currentIndex: number, allParagraphs: string[], playbackSpeed: number = 1.0): void {
+    // Speed-adaptive preloading - immediate for fast speeds
+    const preloadDelay = playbackSpeed >= 1.5 ? 0 : 1; // Immediate for 1.5x+ speeds
+
     setTimeout(async () => {
       try {
         console.log(`🔄 Triggering preload from paragraph ${currentIndex}`);
@@ -245,8 +248,17 @@ export class AudioCacheManager {
         let totalCharacters = 0;
         let preloadCount = 0;
 
+        // Speed-adaptive preloading distance - more aggressive for faster speeds
+        const speedMultiplier = Math.min(playbackSpeed, 2.5);
+        const adaptiveMaxDistance = Math.min(
+          Math.floor(this.config.maxPreloadDistance * speedMultiplier),
+          allParagraphs.length - currentIndex - 1
+        );
+
+        console.log(`📊 Speed-adaptive preloading: ${speedMultiplier}x speed, max distance: ${adaptiveMaxDistance}`);
+
         // Calculate how many paragraphs ahead we need to preload to reach character threshold
-        for (let i = currentIndex + 1; i < allParagraphs.length && preloadCount < this.config.maxPreloadDistance; i++) {
+        for (let i = currentIndex + 1; i < allParagraphs.length && preloadCount < adaptiveMaxDistance; i++) {
           const paragraph = allParagraphs[i];
           totalCharacters += paragraph.length;
           preloadCount++;
@@ -272,7 +284,7 @@ export class AudioCacheManager {
       } catch (error) {
         console.warn('Error in preload trigger:', error);
       }
-    }, 1); // Ultra-minimal delay for instant preloading
+    }, preloadDelay); // Speed-adaptive delay
   }
 
   /**
@@ -323,6 +335,14 @@ export class AudioCacheManager {
    */
   setCurrentlyPlaying(index: number | null): void {
     this.currentPlayingIndex = index;
+  }
+
+  /**
+   * Update playback speed for adaptive caching
+   */
+  setPlaybackSpeed(speed: number): void {
+    this.currentPlaybackSpeed = speed;
+    console.log(`⚡ Cache manager updated to ${speed}x playback speed`);
   }
 
   /**
