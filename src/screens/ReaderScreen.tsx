@@ -743,15 +743,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Loading/Audio Status */}
-          {audioPlayerState.isLoading && (
-            <View style={styles.audioStatusContainer}>
-              <ActivityIndicator size="small" color="#64b5f6" />
-              <Text style={[styles.audioStatusText, { color: textColor }]}>
-                Generating audio...
-              </Text>
-            </View>
-          )}
+          {/* Loading/Audio Status removed for cleaner UI */}
+
 
           {/* Close Button */}
           <TouchableOpacity
@@ -1169,16 +1162,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  audioStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  audioStatusText: {
-    fontSize: 12,
-    marginLeft: 8,
-    fontStyle: 'italic',
-  },
+
   miniPlayerClose: {
     width: 32,
     height: 32,
