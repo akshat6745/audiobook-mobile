@@ -62,6 +62,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const paragraphRefs = useRef<{ [key: number]: View | null }>({});
   const audioCacheManager = useRef<AudioCacheManager | null>(null);
   const audioPlayerManager = useRef<AudioPlayerManager | null>(null);
+  const isTransitioning = useRef(false); // Track if we are switching paragraphs
   const { user } = useAuth();
 
   // Auto-scroll functionality
@@ -131,6 +132,20 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
+    // Optimistic UI update
+    isTransitioning.current = true; // Mark as transitioning
+    setIsPlaying(true);
+    setActiveParagraphIndex(index);
+    setShowMiniPlayer(true);
+    
+    // Update audio player state optimistically
+    setAudioPlayerState(prevState => ({
+      ...prevState,
+      isPlaying: true,
+      currentIndex: index,
+      isLoading: true 
+    }));
+
     try {
       const success = await audioPlayerManager.current.playParagraph(
         index,
@@ -142,9 +157,11 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         console.log(`✅ Successfully started playing paragraph ${index}`);
       } else {
         console.warn(`⚠️ Failed to start playing paragraph ${index}`);
+        isTransitioning.current = false; // Reset on failure
       }
     } catch (error) {
       console.error(`❌ Error playing paragraph ${index}:`, error);
+      isTransitioning.current = false; // Reset on error
       Alert.alert('Audio Error', `Failed to play paragraph: ${(error as Error).message}`);
     }
   };
@@ -159,7 +176,16 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           console.log('🔄 Audio state changed:', state);
           setAudioPlayerState(state);
           setActiveParagraphIndex(state.currentIndex);
-          setIsPlaying(state.isPlaying);
+          
+          // Only update isPlaying if:
+          // 1. It's true (playing) -> Transition done
+          // 2. It's false AND not transitioning (actually paused/stopped)
+          if (state.isPlaying) {
+            isTransitioning.current = false; // Transition complete
+            setIsPlaying(true);
+          } else if (!isTransitioning.current) {
+            setIsPlaying(false);
+          }
 
           if (state.currentIndex !== null) {
             setShowMiniPlayer(true);
@@ -175,14 +201,18 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           if (toIndex < content.length && audioPlayerManager.current && content[toIndex]) {
             try {
               console.log(`🚀 Executing auto-advance playParagraph with content: "${content[toIndex].substring(0, 50)}..."`);
+              isTransitioning.current = true; // Mark as transitioning for auto-advance
+              
               const success = await audioPlayerManager.current.playParagraph(
                 toIndex,
                 content[toIndex],
                 content
               );
               console.log(`🎯 Auto-advance playParagraph result: ${success}`);
+              if (!success) isTransitioning.current = false;
             } catch (error) {
               console.error(`❌ Error in auto-advance:`, error);
+              isTransitioning.current = false;
               // Fallback to regular paragraph press
               console.log(`🔄 Fallback to handleParagraphPress`);
               handleParagraphPress(toIndex);
