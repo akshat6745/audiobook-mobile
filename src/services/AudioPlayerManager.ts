@@ -25,7 +25,7 @@ export class AudioPlayerManager {
   private isPlaying: boolean = false;
   private isLoading: boolean = false;
   private playbackSpeed: number = 1.0;
-  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 50 }; // Much faster transition
+  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 10 }; // Ultra-fast transition
 
   // Callbacks
   private onStateChange?: (state: AudioPlayerState) => void;
@@ -191,14 +191,18 @@ export class AudioPlayerManager {
       this.createStatusCallback(audioData.paragraph_index)
     );
 
+    // Set properties immediately for instant UI update
     this.sound = sound;
     this.currentIndex = audioData.paragraph_index;
     this.isPlaying = true;
 
-    // Update cache manager about currently playing
-    this.cacheManager.setCurrentlyPlaying(audioData.paragraph_index);
-
+    // Emit state change immediately for instant UI feedback
     this.emitStateChange();
+
+    // Update cache manager in background (non-blocking)
+    setTimeout(() => {
+      this.cacheManager.setCurrentlyPlaying(audioData.paragraph_index);
+    }, 0);
   }
 
   /**
@@ -208,25 +212,28 @@ export class AudioPlayerManager {
     let earlyPreloadTriggered = false; // Prevent multiple early preload triggers
 
     return (status: any) => {
-      console.log(`📊 Audio status for paragraph ${paragraphIndex}:`, {
-        isPlaying: status.isPlaying,
-        didJustFinish: status.didJustFinish,
-        positionMillis: status.positionMillis,
-        durationMillis: status.durationMillis,
-      });
+      // Only log critical events for maximum performance during transitions
+      if (status.didJustFinish || (!status.isPlaying && status.positionMillis > 0)) {
+        console.log(`📊 Critical event for paragraph ${paragraphIndex}:`, {
+          isPlaying: status.isPlaying,
+          didJustFinish: status.didJustFinish,
+          position: Math.round(status.positionMillis || 0),
+          duration: Math.round(status.durationMillis || 0),
+        });
+      }
 
       // Update playing state
       this.isPlaying = status.isPlaying || false;
 
-      // Early preload trigger at 80% completion for seamless transitions
+      // Ultra-early preload trigger at 70% completion for instant transitions
       if (!earlyPreloadTriggered &&
           status.positionMillis &&
           status.durationMillis &&
-          status.positionMillis / status.durationMillis >= 0.8) {
+          status.positionMillis / status.durationMillis >= 0.7) {
         earlyPreloadTriggered = true;
         const nextIndex = paragraphIndex + 1;
         if (!this.cacheManager.isAudioReady(nextIndex)) {
-          console.log(`⚡ Early preload trigger at 80% for seamless transition to paragraph ${nextIndex}`);
+          console.log(`⚡ Ultra-early preload trigger at 70% for instant transition to paragraph ${nextIndex}`);
           // This will be handled by existing preload logic
         }
       }
@@ -254,11 +261,11 @@ export class AudioPlayerManager {
     const isComplete = !status.isPlaying &&
            status.positionMillis &&
            status.durationMillis &&
-           status.positionMillis >= status.durationMillis - 200; // Optimized threshold for faster transitions
+           status.positionMillis >= status.durationMillis - 30; // Ultra-aggressive threshold for instant transitions
 
-    if (status.positionMillis && status.durationMillis) {
-      const progress = status.positionMillis / status.durationMillis;
-      console.log(`🎵 Audio progress: ${Math.round(progress * 100)}% (${status.positionMillis}ms / ${status.durationMillis}ms), isPlaying: ${status.isPlaying}, complete: ${isComplete}`);
+    // Only log completion events to reduce overhead during transitions
+    if (isComplete && status.positionMillis && status.durationMillis) {
+      console.log(`🎯 Completion detected: ${Math.round((status.positionMillis / status.durationMillis) * 100)}%`);
     }
 
     return isComplete;
@@ -292,15 +299,13 @@ export class AudioPlayerManager {
       });
 
       if (isNextReady) {
-        // Next paragraph is ready, advance immediately with minimal delay
-        setTimeout(() => {
-          console.log(`🎯 Executing immediate auto-advance: ${paragraphIndex} -> ${nextIndex}`);
-          this.onAutoAdvance?.(paragraphIndex, nextIndex);
-        }, 20); // Minimal delay for immediate transition
+        // Next paragraph is ready, advance INSTANTLY with zero delay
+        console.log(`🎯 Executing INSTANT auto-advance: ${paragraphIndex} -> ${nextIndex}`);
+        this.onAutoAdvance?.(paragraphIndex, nextIndex);
       } else {
-        // Next paragraph not ready, use normal delay
+        // Next paragraph not ready, use minimal delay
         setTimeout(() => {
-          console.log(`🎯 Executing delayed auto-advance: ${paragraphIndex} -> ${nextIndex}`);
+          console.log(`🎯 Executing minimal-delay auto-advance: ${paragraphIndex} -> ${nextIndex}`);
           this.onAutoAdvance?.(paragraphIndex, nextIndex);
         }, this.autoAdvanceConfig.delayMs);
       }

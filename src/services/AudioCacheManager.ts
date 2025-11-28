@@ -232,15 +232,14 @@ export class AudioCacheManager {
       try {
         console.log(`🔄 Triggering preload from paragraph ${currentIndex}`);
 
-        // PRIORITY: Ensure immediate next paragraph is always ready first
+        // ULTRA-PRIORITY: Ensure immediate next paragraph is always ready first
         const immediateNext = currentIndex + 1;
         if (immediateNext < allParagraphs.length &&
             !this.cache.has(immediateNext) &&
             !this.activeRequests.has(immediateNext)) {
-          console.log(`🚀 PRIORITY preloading next paragraph ${immediateNext} for seamless transition`);
-          this.loadAudioForParagraph(immediateNext, allParagraphs[immediateNext]).catch(error => {
-            console.warn(`Failed to preload priority paragraph ${immediateNext}:`, error);
-          });
+          console.log(`🚀 ULTRA-PRIORITY instant preload next paragraph ${immediateNext}`);
+          // Fire and forget for maximum speed
+          this.loadAudioForParagraph(immediateNext, allParagraphs[immediateNext]);
         }
 
         let totalCharacters = 0;
@@ -273,7 +272,7 @@ export class AudioCacheManager {
       } catch (error) {
         console.warn('Error in preload trigger:', error);
       }
-    }, 10); // Minimal delay for immediate preloading
+    }, 1); // Ultra-minimal delay for instant preloading
   }
 
   /**
