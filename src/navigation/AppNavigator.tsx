@@ -16,6 +16,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 
 // Icons
 import { MaterialIcons } from '@expo/vector-icons';
+import { AudioProvider } from '../context/AudioContext';
+import GlobalMiniPlayer from '../components/GlobalMiniPlayer';
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
@@ -130,9 +132,18 @@ const AppNavigator: React.FC = () => {
   }
 
   return (
-    <NavigationContainer>
-      {user ? <MainStack /> : <AuthStack />}
-    </NavigationContainer>
+    <AudioProvider>
+      <NavigationContainer>
+        {user ? (
+          <>
+            <MainStack />
+            <GlobalMiniPlayer />
+          </>
+        ) : (
+          <AuthStack />
+        )}
+      </NavigationContainer>
+    </AudioProvider>
   );
 };
 

@@ -19,8 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { AudioCacheManager } from '../services/AudioCacheManager';
-import { AudioPlayerManager, AudioPlayerState } from '../services/AudioPlayerManager';
+import { useAudio } from '../context/AudioContext';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
@@ -32,36 +31,35 @@ interface Props {
 
 const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const { novel, chapter } = route.params;
-  const [content, setContent] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    isPlaying,
+    currentParagraphIndex,
+    playParagraph,
+    loadChapter,
+    setPlaybackSpeed,
+    setVoices,
+    audioPlayerState,
+    content,
+    isChapterLoading,
+    playbackSpeed
+  } = useAudio();
+
+  // Local state for UI only
+
+  // Local state for UI only
   const [fontSize, setFontSize] = useState(16);
   const [backgroundColor, setBackgroundColor] = useState('#1a1a1a');
   const [textColor, setTextColor] = useState('#fff');
   const [showSettings, setShowSettings] = useState(false);
-  const [activeParagraphIndex, setActiveParagraphIndex] = useState<number | null>(null);
-  const [showMiniPlayer, setShowMiniPlayer] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [showSpeedModal, setShowSpeedModal] = useState(false);
   const [showNarratorModal, setShowNarratorModal] = useState(false);
   const [showDialogueModal, setShowDialogueModal] = useState(false);
   const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
   const [dialogueVoice, setDialogueVoice] = useState("en-US-AvaMultilingualNeural");
-  const [audioPlayerState, setAudioPlayerState] = useState<AudioPlayerState>({
-    isPlaying: false,
-    currentIndex: null,
-    isLoading: false,
-    duration: 0,
-    position: 0,
-    playbackSpeed: 1.0,
-    pitchCorrectionEnabled: false,
-    platform: 'ios',
-  });
 
   const scrollViewRef = useRef<ScrollView>(null);
   const paragraphRefs = useRef<{ [key: number]: View | null }>({});
-  const audioCacheManager = useRef<AudioCacheManager | null>(null);
-  const audioPlayerManager = useRef<AudioPlayerManager | null>(null);
+
   const isTransitioning = useRef(false); // Track if we are switching paragraphs
   const { user } = useAuth();
 
@@ -85,10 +83,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   // Auto-scroll when active paragraph changes
   useEffect(() => {
-    if (activeParagraphIndex !== null) {
-      scrollToActiveParagraph(activeParagraphIndex);
+    if (currentParagraphIndex !== null) {
+      scrollToActiveParagraph(currentParagraphIndex);
     }
-  }, [activeParagraphIndex, scrollToActiveParagraph]);
+  }, [currentParagraphIndex, scrollToActiveParagraph]);
 
   // Audio system handled by AudioCacheManager and AudioPlayerManager
 
@@ -107,225 +105,22 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const dialogueVoices = VOICE_OPTIONS;
 
   useEffect(() => {
-    loadChapterContent();
-    saveProgress();
-    initializeAudioSystem();
+    loadChapter(novel, chapter);
+  }, [chapter.id, novel.title, loadChapter]);
 
-    return () => {
-      cleanupAudioSystem();
-    };
-  }, [chapter]);
-
-  // Re-initialize audio system when voices change
   useEffect(() => {
-    if (audioCacheManager.current && audioPlayerManager.current) {
-      audioCacheManager.current.updateVoices(narratorVoice, dialogueVoice);
-    }
-  }, [narratorVoice, dialogueVoice]);
+    saveProgress();
+  }, [chapter.id, novel.title]); // Only save when chapter changes
+
+  // Update voices in context
+  useEffect(() => {
+    setVoices(narratorVoice, dialogueVoice);
+  }, [narratorVoice, dialogueVoice, setVoices]);
 
   // Handle paragraph press - Moved up to avoid use-before-declaration in useEffect
   const handleParagraphPress = async (index: number) => {
     console.log('🎯 handleParagraphPress called for index:', index);
-
-    if (!audioPlayerManager.current || !content[index]) {
-      console.warn('Audio system not ready or invalid index');
-      return;
-    }
-
-    // Optimistic UI update
-    isTransitioning.current = true; // Mark as transitioning
-    setIsPlaying(true);
-    setActiveParagraphIndex(index);
-    setShowMiniPlayer(true);
-    
-    // Update audio player state optimistically
-    setAudioPlayerState(prevState => ({
-      ...prevState,
-      isPlaying: true,
-      currentIndex: index,
-      isLoading: true 
-    }));
-
-    try {
-      const success = await audioPlayerManager.current.playParagraph(
-        index,
-        content[index],
-        content
-      );
-
-      if (success) {
-        console.log(`✅ Successfully started playing paragraph ${index}`);
-      } else {
-        console.warn(`⚠️ Failed to start playing paragraph ${index}`);
-        isTransitioning.current = false; // Reset on failure
-      }
-    } catch (error) {
-      console.error(`❌ Error playing paragraph ${index}:`, error);
-      isTransitioning.current = false; // Reset on error
-      Alert.alert('Audio Error', `Failed to play paragraph: ${(error as Error).message}`);
-    }
-  };
-
-  // Update callbacks when content changes to avoid stale closures
-  useEffect(() => {
-    if (audioPlayerManager.current && content.length > 0) {
-      console.log(`🔄 Setting callbacks with content length: ${content.length}`);
-
-      audioPlayerManager.current.setCallbacks({
-        onStateChange: (state) => {
-          console.log('🔄 Audio state changed:', state);
-          setAudioPlayerState(state);
-          setActiveParagraphIndex(state.currentIndex);
-          
-          // Only update isPlaying if:
-          // 1. It's true (playing) -> Transition done
-          // 2. It's false AND not transitioning (actually paused/stopped)
-          if (state.isPlaying) {
-            isTransitioning.current = false; // Transition complete
-            setIsPlaying(true);
-          } else if (!isTransitioning.current) {
-            setIsPlaying(false);
-          }
-
-          if (state.currentIndex !== null) {
-            setShowMiniPlayer(true);
-            // Auto-scroll to current paragraph
-            scrollToActiveParagraph(state.currentIndex);
-          }
-        },
-        onAutoAdvance: async (fromIndex, toIndex) => {
-          console.log(`⏭️ Auto-advancing from ${fromIndex} to ${toIndex}`);
-
-          console.log(`📋 Current content length: ${content.length}, toIndex: ${toIndex}`);
-
-          if (toIndex < content.length && audioPlayerManager.current && content[toIndex]) {
-            try {
-              console.log(`🚀 Executing auto-advance playParagraph with content: "${content[toIndex].substring(0, 50)}..."`);
-              isTransitioning.current = true; // Mark as transitioning for auto-advance
-              
-              const success = await audioPlayerManager.current.playParagraph(
-                toIndex,
-                content[toIndex],
-                content
-              );
-              console.log(`🎯 Auto-advance playParagraph result: ${success}`);
-              if (!success) isTransitioning.current = false;
-            } catch (error) {
-              console.error(`❌ Error in auto-advance:`, error);
-              isTransitioning.current = false;
-              // Fallback to regular paragraph press
-              console.log(`🔄 Fallback to handleParagraphPress`);
-              handleParagraphPress(toIndex);
-            }
-          } else {
-            console.warn(`⚠️ Auto-advance failed:`, {
-              toIndex,
-              contentLength: content.length,
-              hasManager: !!audioPlayerManager.current,
-              hasContent: !!content[toIndex]
-            });
-          }
-        },
-        onError: (error) => {
-          console.error('🚨 Audio player error:', error);
-          Alert.alert('Audio Error', error.message);
-        },
-      });
-    }
-  }, [content, handleParagraphPress]);
-
-  const initializeAudioSystem = async () => {
-    console.log('🎵 Initializing new audio system');
-
-    // Create audio cache manager
-    audioCacheManager.current = new AudioCacheManager(
-      narratorVoice,
-      dialogueVoice,
-      {
-        maxCacheSize: 20,
-        preloadCharacterThreshold: 1000,
-        maxPreloadDistance: 8,
-        cacheExpiryMs: 30 * 60 * 1000,
-      }
-    );
-
-    // Create audio player manager
-    audioPlayerManager.current = new AudioPlayerManager(audioCacheManager.current);
-
-    // Note: Callbacks will be set in useEffect when content is loaded
-
-    // Configure auto-advance
-    audioPlayerManager.current.configureAutoAdvance({
-      enabled: true,
-      delayMs: 0,
-    });
-
-    console.log('✅ Audio system initialized');
-  };
-
-  const cleanupAudioSystem = async () => {
-    console.log('🧹 Cleaning up audio system');
-
-    if (audioPlayerManager.current) {
-      await audioPlayerManager.current.cleanup();
-    }
-
-    if (audioCacheManager.current) {
-      audioCacheManager.current.clearCache();
-    }
-
-    audioPlayerManager.current = null;
-    audioCacheManager.current = null;
-  };
-
-  const loadChapterContent = async () => {
-    try {
-      setIsLoading(true);
-      const chapterData = await chapterAPI.getChapterContent(
-        chapter.chapterNumber,
-        novel.title
-      );
-      // Filter out empty paragraphs and process content
-      const processedContent = chapterData.content
-        .map((text) => text.trim())
-        .filter((text) => text.length > 0);
-
-      // Add chapter title as the first paragraph
-      const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
-      setContent([titleContent, ...processedContent]);
-    } catch (error) {
-      console.error('Error loading chapter content:', error);
-
-      // Load demo content if backend is not available
-      const demoContent = [
-        `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`, // Add title to demo content
-        "Welcome to the AudioBook Reader demo application!",
-        "This is a demonstration chapter that shows how the reading interface works. In a real application, this content would come from your AudioBookPython backend server.",
-        "The reader supports multiple features:",
-        "• Adjustable font size for comfortable reading",
-        "• Dark and light theme toggle",
-        "• Automatic progress saving",
-        "• Audio playback with text-to-speech",
-        "• Cross-platform support (iOS, Android, Web)",
-        "• Clickable paragraphs for enhanced interaction",
-        "To use this app with real content, make sure your AudioBookPython backend is running and accessible.",
-        "The app will automatically detect when the backend is available and switch from demo mode to live mode.",
-        "Enjoy exploring the features of this audiobook reader! You can navigate using the toolbar at the bottom, switch to audio mode, or adjust reading settings.",
-        "This paragraph demonstrates how longer content is displayed in the reader. The text is automatically formatted for comfortable reading with proper line spacing and justification.",
-        "Try tapping on any paragraph to see the click interaction - this feature can be used for audio playback control.",
-        "Thank you for trying out the AudioBook Reader mobile application!"
-      ];
-
-      setContent(demoContent);
-
-      Alert.alert(
-        'Demo Content',
-        'Loading demo chapter content. Backend not available - using demo mode.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setIsLoading(false);
-    }
+    await playParagraph(index);
   };
 
   const saveProgress = async () => {
@@ -359,54 +154,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
 
 
-
-
-  // Old loadParagraphAudio function removed - using new AudioPlayerManager
-
-  // Old preloading functions removed - using new AudioCacheManager
-
-  const togglePlayback = async () => {
-    if (audioPlayerManager.current) {
-      const success = await audioPlayerManager.current.togglePlayback();
-      if (!success) {
-        console.warn('Failed to toggle playback');
-      }
-    }
-  };
-
-  const goToPreviousParagraph = async () => {
-    const currentIndex = audioPlayerState.currentIndex;
-
-    if (currentIndex !== null && currentIndex > 0) {
-      const newIndex = currentIndex - 1;
-      console.log('⬅️ goToPreviousParagraph: Moving to index', newIndex);
-      await handleParagraphPress(newIndex);
-    }
-  };
-
-  const goToNextParagraph = async () => {
-    const currentIndex = audioPlayerState.currentIndex;
-
-    if (currentIndex !== null && currentIndex < content.length - 1) {
-      const newIndex = currentIndex + 1;
-      console.log('➡️ goToNextParagraph: Moving to index', newIndex);
-      await handleParagraphPress(newIndex);
-    } else {
-      console.log('goToNextParagraph: Cannot advance - currentIndex:', currentIndex, 'contentLength:', content.length);
-    }
-  };
-
-  const closeMiniPlayer = async () => {
-    setShowMiniPlayer(false);
-    setIsPlaying(false);
-    setActiveParagraphIndex(null);
-
-    // Clean up audio player
-    if (audioPlayerManager.current) {
-      await audioPlayerManager.current.cleanup();
-    }
-  };
-
   const openNarratorVoiceModal = () => {
     setShowNarratorModal(true);
   };
@@ -419,14 +166,9 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setNarratorVoice(voiceValue);
     setShowNarratorModal(false);
 
-    // Update cache manager with new voice
-    if (audioCacheManager.current) {
-      audioCacheManager.current.updateVoices(voiceValue, dialogueVoice);
-    }
-
     // Replay current paragraph with new voice
-    if (audioPlayerState.currentIndex !== null) {
-      await handleParagraphPress(audioPlayerState.currentIndex);
+    if (currentParagraphIndex !== null) {
+      await playParagraph(currentParagraphIndex);
     }
   };
 
@@ -434,19 +176,14 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setDialogueVoice(voiceValue);
     setShowDialogueModal(false);
 
-    // Update cache manager with new voice
-    if (audioCacheManager.current) {
-      audioCacheManager.current.updateVoices(narratorVoice, voiceValue);
-    }
-
     // Replay current paragraph with new voice
-    if (audioPlayerState.currentIndex !== null) {
-      await handleParagraphPress(audioPlayerState.currentIndex);
+    if (currentParagraphIndex !== null) {
+      await playParagraph(currentParagraphIndex);
     }
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
-    const isActive = audioPlayerState.currentIndex === index;
+    const isActive = currentParagraphIndex === index;
     // Removed isLoading check for UI simplification
 
 
@@ -471,8 +208,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 : (backgroundColor === '#fff' ? '#ffffff' : '#252525'), // Lighter/Darker background for contrast
               borderLeftColor: isActive ? '#64b5f6' : 'transparent',
               borderLeftWidth: isActive ? 4 : 0,
-              borderColor: isActive 
-                ? '#64b5f6' 
+              borderColor: isActive
+                ? '#64b5f6'
                 : (backgroundColor === '#fff' ? '#e0e0e0' : '#3A3A3A'), // More visible border
               shadowColor: isActive ? '#64b5f6' : '#000',
               shadowOffset: { width: 0, height: isActive ? 4 : 2 },
@@ -558,11 +295,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 onPress={async () => {
                   setPlaybackSpeed(speed);
                   setShowSpeedModal(false);
-
-                  // Update playback speed in audio player
-                  if (audioPlayerManager.current) {
-                    await audioPlayerManager.current.setPlaybackSpeed(speed);
-                  }
                 }}
               >
                 <Text style={[
@@ -695,96 +427,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     </Modal>
   );
 
-  const renderMiniPlayer = () => {
-    if (!showMiniPlayer || activeParagraphIndex === null) return null;
 
-    return (
-      <Animated.View style={styles.miniPlayerContainer}>
-        {/* Modern glass morphism effect */}
-        <LinearGradient
-          colors={['rgba(100, 181, 246, 0.1)', 'rgba(100, 181, 246, 0.05)']}
-          style={styles.miniPlayerGradient}
-        />
-        <View style={styles.miniPlayerContent}>
-          <View style={styles.miniPlayerControls}>
-            {/* Previous Button */}
-            <TouchableOpacity
-              style={[
-                styles.miniPlayerButton,
-                {
-                  opacity: activeParagraphIndex > 0 ? 1 : 0.5,
-                }
-              ]}
-              onPress={goToPreviousParagraph}
-              disabled={activeParagraphIndex === 0}
-            >
-              <MaterialIcons name="skip-previous" size={20} color="#fff" />
-            </TouchableOpacity>
-
-            {/* Play/Pause Button */}
-            <TouchableOpacity
-              style={[styles.miniPlayerPlayButton, { backgroundColor: '#64b5f6' }]}
-              onPress={togglePlayback}
-            >
-              <MaterialIcons
-                name={isPlaying ? "pause" : "play-arrow"}
-                size={24}
-                color="#000"
-              />
-            </TouchableOpacity>
-
-            {/* Next Button */}
-            <TouchableOpacity
-              style={[
-                styles.miniPlayerButton,
-                {
-                  opacity: activeParagraphIndex < content.length - 1 ? 1 : 0.5,
-                }
-              ]}
-              onPress={goToNextParagraph}
-              disabled={activeParagraphIndex === content.length - 1}
-            >
-              <MaterialIcons name="skip-next" size={20} color="#fff" />
-            </TouchableOpacity>
-
-            {/* Voice Selection Buttons */}
-            <TouchableOpacity
-              style={styles.miniPlayerVoiceButton}
-              onPress={openNarratorVoiceModal}
-            >
-              <MaterialIcons name="person" size={16} color="#fff" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.miniPlayerVoiceButton}
-              onPress={openDialogueVoiceModal}
-            >
-              <MaterialIcons name="chat" size={16} color="#fff" />
-            </TouchableOpacity>
-
-            {/* Speed Button */}
-            <TouchableOpacity
-              style={styles.miniPlayerSpeedButton}
-              onPress={() => setShowSpeedModal(true)}
-            >
-              <Text style={styles.miniPlayerSpeedText}>{playbackSpeed}×</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Loading/Audio Status removed for cleaner UI */}
-
-
-          {/* Close Button */}
-          <TouchableOpacity
-            style={styles.miniPlayerClose}
-            onPress={closeMiniPlayer}
-          >
-            <MaterialIcons name="close" size={20} color={textColor} />
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-    );
-  };
 
   const renderSettingsPanel = () => (
     <Modal
@@ -852,7 +495,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     </Modal>
   );
 
-  if (isLoading) {
+  if (isChapterLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2196F3" />
@@ -876,7 +519,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         style={styles.scrollView}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingBottom: showMiniPlayer ? 140 : 80 }
+          { paddingBottom: 100 }
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -887,14 +530,14 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       </ScrollView>
 
       {renderSettingsPanel()}
-      {renderMiniPlayer()}
+
       {renderSpeedModal()}
       {renderNarratorVoiceModal()}
       {renderDialogueVoiceModal()}
 
       {/* Floating Settings Button */}
       <TouchableOpacity
-        style={[styles.floatingSettingsButton, { bottom: showMiniPlayer ? 100 : 20 }]}
+        style={[styles.floatingSettingsButton, { bottom: 20 }]}
         onPress={toggleSettings}
       >
         <MaterialIcons name="settings" size={24} color="#fff" />
