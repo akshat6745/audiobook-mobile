@@ -10,7 +10,9 @@ import {
   Dimensions,
   Modal,
   Animated,
+  StatusBar,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -52,12 +54,40 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     duration: 0,
     position: 0,
     playbackSpeed: 1.0,
+    pitchCorrectionEnabled: false,
+    platform: 'ios',
   });
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const paragraphRefs = useRef<{ [key: number]: View | null }>({});
   const audioCacheManager = useRef<AudioCacheManager | null>(null);
   const audioPlayerManager = useRef<AudioPlayerManager | null>(null);
   const { user } = useAuth();
+
+  // Auto-scroll functionality
+  const scrollToActiveParagraph = useCallback((paragraphIndex: number) => {
+    if (scrollViewRef.current && paragraphRefs.current[paragraphIndex]) {
+      paragraphRefs.current[paragraphIndex]?.measureLayout(
+        scrollViewRef.current as any,
+        (x, y, width, height) => {
+          const scrollPosition = Math.max(0, y - 100); // Offset for better visibility
+          scrollViewRef.current?.scrollTo({
+            y: scrollPosition,
+            animated: true,
+          });
+          console.log(`📍 Auto-scrolled to paragraph ${paragraphIndex} at position ${scrollPosition}`);
+        },
+        () => console.warn(`⚠️ Could not measure paragraph ${paragraphIndex} for auto-scroll`)
+      );
+    }
+  }, []);
+
+  // Auto-scroll when active paragraph changes
+  useEffect(() => {
+    if (activeParagraphIndex !== null) {
+      scrollToActiveParagraph(activeParagraphIndex);
+    }
+  }, [activeParagraphIndex, scrollToActiveParagraph]);
 
   // Audio system handled by AudioCacheManager and AudioPlayerManager
 
@@ -92,6 +122,33 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [narratorVoice, dialogueVoice]);
 
+  // Handle paragraph press - Moved up to avoid use-before-declaration in useEffect
+  const handleParagraphPress = async (index: number) => {
+    console.log('🎯 handleParagraphPress called for index:', index);
+
+    if (!audioPlayerManager.current || !content[index]) {
+      console.warn('Audio system not ready or invalid index');
+      return;
+    }
+
+    try {
+      const success = await audioPlayerManager.current.playParagraph(
+        index,
+        content[index],
+        content
+      );
+
+      if (success) {
+        console.log(`✅ Successfully started playing paragraph ${index}`);
+      } else {
+        console.warn(`⚠️ Failed to start playing paragraph ${index}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error playing paragraph ${index}:`, error);
+      Alert.alert('Audio Error', `Failed to play paragraph: ${(error as Error).message}`);
+    }
+  };
+
   // Update callbacks when content changes to avoid stale closures
   useEffect(() => {
     if (audioPlayerManager.current && content.length > 0) {
@@ -106,6 +163,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
           if (state.currentIndex !== null) {
             setShowMiniPlayer(true);
+            // Auto-scroll to current paragraph
+            scrollToActiveParagraph(state.currentIndex);
           }
         },
         onAutoAdvance: async (fromIndex, toIndex) => {
@@ -201,12 +260,15 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         .map((text) => text.trim())
         .filter((text) => text.length > 0);
 
-      setContent(processedContent);
+      // Add chapter title as the first paragraph
+      const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
+      setContent([titleContent, ...processedContent]);
     } catch (error) {
       console.error('Error loading chapter content:', error);
 
       // Load demo content if backend is not available
       const demoContent = [
+        `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`, // Add title to demo content
         "Welcome to the AudioBook Reader demo application!",
         "This is a demonstration chapter that shows how the reading interface works. In a real application, this content would come from your AudioBookPython backend server.",
         "The reader supports multiple features:",
@@ -269,31 +331,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('AudioPlayer', { novel, chapter });
   };
 
-  const handleParagraphPress = async (index: number) => {
-    console.log('🎯 handleParagraphPress called for index:', index);
 
-    if (!audioPlayerManager.current || !content[index]) {
-      console.warn('Audio system not ready or invalid index');
-      return;
-    }
-
-    try {
-      const success = await audioPlayerManager.current.playParagraph(
-        index,
-        content[index],
-        content
-      );
-
-      if (success) {
-        console.log(`✅ Successfully started playing paragraph ${index}`);
-      } else {
-        console.warn(`⚠️ Failed to start playing paragraph ${index}`);
-      }
-    } catch (error) {
-      console.error(`❌ Error playing paragraph ${index}:`, error);
-      Alert.alert('Audio Error', `Failed to play paragraph: ${error.message}`);
-    }
-  };
 
   // Old loadParagraphAudio function removed - using new AudioPlayerManager
 
@@ -381,50 +419,100 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderParagraph = (paragraph: string, index: number) => {
     const isActive = audioPlayerState.currentIndex === index;
+    const isLoading = audioPlayerState.isLoading && audioPlayerState.currentIndex === index;
 
     return (
-      <TouchableOpacity
+      <View
         key={index}
-        activeOpacity={0.7}
-        onPress={() => {
-          console.log('Paragraph pressed! Index:', index);
-          handleParagraphPress(index);
+        ref={(ref) => {
+          paragraphRefs.current[index] = ref;
         }}
-        style={[
-          styles.paragraphContainer,
-          {
-            backgroundColor: isActive
-              ? (backgroundColor === '#fff' ? '#f0f8ff' : '#2a2a2a')
-              : undefined, // Use default from styles
-            borderLeftColor: isActive ? '#64b5f6' : 'transparent',
-            borderLeftWidth: isActive ? 4 : 0,
-            borderColor: isActive ? '#64b5f6' : '#333333',
-          }
-        ]}
       >
-        <Text style={[
-          styles.paragraph,
-          {
-            fontSize,
-            color: isActive
-              ? (backgroundColor === '#fff' ? '#1976d2' : '#64b5f6')
-              : textColor,
-            fontWeight: isActive ? '600' : 'normal'
-          }
-        ]}>
-          {paragraph}
-        </Text>
-        {isActive && (
-          <Text style={[
-            styles.paragraphLabel,
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            console.log('Paragraph pressed! Index:', index);
+            handleParagraphPress(index);
+          }}
+          style={[
+            styles.paragraphContainer,
             {
-              color: backgroundColor === '#fff' ? '#1976d2' : '#64b5f6'
+              backgroundColor: isActive
+                ? (backgroundColor === '#fff' ? 'rgba(100, 181, 246, 0.15)' : 'rgba(100, 181, 246, 0.2)')
+                : (backgroundColor === '#fff' ? '#ffffff' : '#252525'), // Lighter/Darker background for contrast
+              borderLeftColor: isActive ? '#64b5f6' : 'transparent',
+              borderLeftWidth: isActive ? 4 : 0,
+              borderColor: isActive 
+                ? '#64b5f6' 
+                : (backgroundColor === '#fff' ? '#e0e0e0' : '#3A3A3A'), // More visible border
+              shadowColor: isActive ? '#64b5f6' : '#000',
+              shadowOffset: { width: 0, height: isActive ? 4 : 2 },
+              shadowOpacity: isActive ? 0.25 : (backgroundColor === '#fff' ? 0.1 : 0.3),
+              shadowRadius: isActive ? 8 : 4,
+              elevation: isActive ? 8 : 3,
+              transform: [{ scale: isActive ? 1.01 : 1 }],
+              marginBottom: index === 0 ? 24 : 16, // Extra margin for title
+            }
+          ]}
+        >
+          {/* Audio loading indicator */}
+          {isLoading && (
+            <View style={styles.loadingIndicator}>
+              <ActivityIndicator size="small" color="#64b5f6" />
+            </View>
+          )}
+
+          {/* Playing icon for active paragraph */}
+          {isActive && !isLoading && (
+            <View style={styles.playingIndicator}>
+              <MaterialIcons
+                name={audioPlayerState.isPlaying ? "volume-up" : "pause"}
+                size={18}
+                color="#64b5f6"
+              />
+            </View>
+          )}
+
+          <Text style={[
+            index === 0 ? styles.chapterTitleText : styles.paragraph, // Special style for title
+            {
+              fontSize: index === 0 ? fontSize * 1.5 : fontSize,
+              color: isActive
+                ? (backgroundColor === '#fff' ? '#1565c0' : '#90caf9')
+                : textColor,
+              fontWeight: index === 0 ? '700' : (isActive ? '600' : '400'),
+              lineHeight: fontSize * (index === 0 ? 1.3 : 1.6),
+              marginTop: isActive ? 4 : 0,
+              textAlign: index === 0 ? 'center' : 'justify',
             }
           ]}>
-            Paragraph {index + 1} • Now Reading
+            {paragraph}
           </Text>
-        )}
-      </TouchableOpacity>
+
+          <View style={styles.paragraphFooter}>
+            <Text style={[
+              styles.paragraphLabel,
+              {
+                color: isActive ? '#64b5f6' : (backgroundColor === '#fff' ? '#757575' : '#888'),
+                fontWeight: isActive ? '600' : '400',
+              }
+            ]}>
+              {isActive && audioPlayerState.isPlaying ? '🎵 Playing' :
+               isActive && !audioPlayerState.isPlaying && !isLoading ? '⏸️ Paused' :
+               isLoading ? '⏳ Loading...' :
+               index === 0 ? 'Chapter Title' : `Paragraph ${index}`}
+            </Text>
+
+            {/* Word count for better reading experience */}
+            <Text style={[
+              styles.wordCount,
+              { color: backgroundColor === '#fff' ? '#bdbdbd' : '#666' }
+            ]}>
+              {paragraph.split(' ').length} words
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -601,6 +689,11 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
     return (
       <Animated.View style={styles.miniPlayerContainer}>
+        {/* Modern glass morphism effect */}
+        <LinearGradient
+          colors={['rgba(100, 181, 246, 0.1)', 'rgba(100, 181, 246, 0.05)']}
+          style={styles.miniPlayerGradient}
+        />
         <View style={styles.miniPlayerContent}>
           <View style={styles.miniPlayerControls}>
             {/* Previous Button */}
@@ -609,7 +702,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 styles.miniPlayerButton,
                 {
                   opacity: activeParagraphIndex > 0 ? 1 : 0.5,
-                  backgroundColor: '#333'
                 }
               ]}
               onPress={goToPreviousParagraph}
@@ -636,7 +728,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 styles.miniPlayerButton,
                 {
                   opacity: activeParagraphIndex < content.length - 1 ? 1 : 0.5,
-                  backgroundColor: '#333'
                 }
               ]}
               onPress={goToNextParagraph}
@@ -647,14 +738,14 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
             {/* Voice Selection Buttons */}
             <TouchableOpacity
-              style={[styles.miniPlayerVoiceButton, { backgroundColor: '#333' }]}
+              style={styles.miniPlayerVoiceButton}
               onPress={openNarratorVoiceModal}
             >
               <MaterialIcons name="person" size={16} color="#fff" />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.miniPlayerVoiceButton, { backgroundColor: '#333' }]}
+              style={styles.miniPlayerVoiceButton}
               onPress={openDialogueVoiceModal}
             >
               <MaterialIcons name="chat" size={16} color="#fff" />
@@ -662,7 +753,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
             {/* Speed Button */}
             <TouchableOpacity
-              style={[styles.miniPlayerSpeedButton, { backgroundColor: '#333' }]}
+              style={styles.miniPlayerSpeedButton}
               onPress={() => setShowSpeedModal(true)}
             >
               <Text style={styles.miniPlayerSpeedText}>{playbackSpeed}×</Text>
@@ -768,18 +859,26 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
+      <StatusBar barStyle="light-content" backgroundColor={backgroundColor} />
+
+      {/* Modern gradient header */}
+      <LinearGradient
+        colors={['rgba(100, 181, 246, 0.1)', 'transparent']}
+        style={styles.headerGradient}
+      />
+
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingBottom: showMiniPlayer ? 100 : 40 }
+          { paddingBottom: showMiniPlayer ? 140 : 80 }
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.chapterTitle, { color: textColor }]}>
-          Chapter {chapter.chapterNumber}: {chapter.chapterTitle}
-        </Text>
+        <View style={styles.chapterHeader}>
+          {/* Title is now part of the content list */}
+        </View>
         {content.map((paragraph, index) => renderParagraph(paragraph, index))}
       </ScrollView>
 
@@ -813,39 +912,63 @@ const { height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#0a0a0a', // Deeper background for better contrast
   },
   scrollView: {
     flex: 1,
   },
   contentContainer: {
     padding: 20,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
-  chapterTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    lineHeight: 28,
+  chapterTitleText: {
+    marginBottom: 8,
+    letterSpacing: 0.5,
   },
   paragraphContainer: {
-    marginBottom: 15,
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 50,
-    backgroundColor: '#242424', // Subtle dark shade for distinction
+    marginBottom: 16,
+    borderRadius: 12,
+    padding: 16,
+    minHeight: 60,
+    backgroundColor: '#1a1a1a',
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: '#2a2a2a',
+    position: 'relative',
   },
   paragraph: {
-    lineHeight: 24,
     textAlign: 'justify',
+    letterSpacing: 0.2,
   },
   paragraphLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontStyle: 'italic',
     marginTop: 8,
-    textAlign: 'right',
+    textAlign: 'left',
+  },
+  paragraphFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  wordCount: {
+    fontSize: 10,
+    fontStyle: 'italic',
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+  },
+  playingIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+    backgroundColor: 'rgba(100, 181, 246, 0.1)',
+    borderRadius: 12,
+    padding: 4,
   },
   toolbar: {
     position: 'absolute',
@@ -960,29 +1083,61 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  // Modern design elements
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    zIndex: 0,
+  },
+  chapterHeader: {
+    marginBottom: 10,
+    paddingVertical: 0,
+  },
+  chapterSubtitle: {
+    fontSize: 16,
+    fontWeight: '400',
+    textAlign: 'center',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
   // Mini Player Styles
   miniPlayerContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#252525', // Contrasting dark shade
+    backgroundColor: 'rgba(26, 26, 26, 0.95)',
     borderTopWidth: 1,
-    borderTopColor: '#404040',
-    elevation: 20,
+    borderTopColor: 'rgba(100, 181, 246, 0.3)',
+    elevation: 25,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 5,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
     zIndex: 1000,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  miniPlayerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
   miniPlayerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
     justifyContent: 'space-between',
-    minHeight: 80,
+    minHeight: 88,
+    zIndex: 1,
   },
   miniPlayerTitle: {
     fontSize: 14,
@@ -998,26 +1153,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   miniPlayerButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   miniPlayerPlayButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#64b5f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   miniPlayerSpeedButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    minWidth: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    minWidth: 56,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   miniPlayerSpeedText: {
     color: '#fff',
@@ -1025,11 +1191,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   miniPlayerVoiceButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   audioStatusContainer: {
     flexDirection: 'row',
@@ -1140,11 +1309,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#64b5f6',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    elevation: 12,
+    shadowColor: '#64b5f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
     zIndex: 999,
   },
   floatingAudioButton: {
@@ -1156,11 +1325,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF9800',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    elevation: 12,
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
     zIndex: 999,
   },
 });
