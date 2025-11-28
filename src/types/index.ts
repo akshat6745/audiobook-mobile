@@ -69,6 +69,6 @@ export type RootStackParamList = {
   NovelList: undefined;
   ChapterList: { novel: Novel };
   Reader: { novel: Novel; chapter: Chapter };
-  AudioPlayer: { novel: Novel; chapter: Chapter };
+
   Profile: undefined;
 };

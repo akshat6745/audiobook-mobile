@@ -357,9 +357,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const navigateToAudioPlayer = () => {
-    navigation.navigate('AudioPlayer', { novel, chapter });
-  };
+
 
 
 
@@ -902,13 +900,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         <MaterialIcons name="settings" size={24} color="#fff" />
       </TouchableOpacity>
 
-      {/* Floating Audio Button */}
-      <TouchableOpacity
-        style={[styles.floatingAudioButton, { bottom: showMiniPlayer ? 160 : 80 }]}
-        onPress={navigateToAudioPlayer}
-      >
-        <MaterialIcons name="headset" size={24} color="#fff" />
-      </TouchableOpacity>
+
 
     </View>
   );
@@ -1294,22 +1286,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 12,
     shadowColor: '#64b5f6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    zIndex: 999,
-  },
-  floatingAudioButton: {
-    position: 'absolute',
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FF9800',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 12,
-    shadowColor: '#FF9800',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

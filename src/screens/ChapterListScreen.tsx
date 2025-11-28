@@ -82,12 +82,8 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
     setRefreshing(false);
   };
 
-  const handleChapterPress = useCallback((chapter: Chapter, mode: 'read' | 'audio') => {
-    if (mode === 'read') {
-      navigation.navigate('Reader', { novel, chapter });
-    } else {
-      navigation.navigate('AudioPlayer', { novel, chapter });
-    }
+  const handleChapterPress = useCallback((chapter: Chapter) => {
+    navigation.navigate('Reader', { novel, chapter });
   }, [navigation, novel]);
 
   const renderChapter = ({ item }: { item: Chapter }) => {
@@ -97,7 +93,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
       <View style={styles.chapterCard}>
         <TouchableOpacity
           style={[styles.chapterContent, isLastRead && styles.lastReadChapter]}
-          onPress={() => handleChapterPress(item, 'read')}
+          onPress={() => handleChapterPress(item)}
         >
           <View style={styles.chapterHeader}>
             <Text style={styles.chapterNumber}>
@@ -117,15 +113,9 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.chapterActions}>
           <TouchableOpacity
             style={[styles.actionButton, styles.readButton]}
-            onPress={() => handleChapterPress(item, 'read')}
+            onPress={() => handleChapterPress(item)}
           >
             <MaterialIcons name="book" size={20} color={Theme.colors.primary[600]} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.audioButton]}
-            onPress={() => handleChapterPress(item, 'audio')}
-          >
-            <MaterialIcons name="headset" size={20} color={Theme.colors.accent[600]} />
           </TouchableOpacity>
         </View>
       </View>
@@ -287,9 +277,7 @@ const styles = StyleSheet.create({
   readButton: {
     backgroundColor: Theme.colors.primary[100],
   },
-  audioButton: {
-    backgroundColor: Theme.colors.accent[100],
-  },
+
   loadingContainer: {
     flex: 1,
   },

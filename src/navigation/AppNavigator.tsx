@@ -11,7 +11,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import NovelListScreen from '../screens/NovelListScreen';
 import ChapterListScreen from '../screens/ChapterListScreen';
 import ReaderScreen from '../screens/ReaderScreen';
-import AudioPlayerScreen from '../screens/AudioPlayerScreen';
+
 import ProfileScreen from '../screens/ProfileScreen';
 
 // Icons
@@ -116,13 +116,7 @@ const MainStack = () => {
           title: (route.params as any)?.chapter?.chapterTitle || 'Reading'
         })}
       />
-      <Stack.Screen
-        name="AudioPlayer"
-        component={AudioPlayerScreen}
-        options={({ route }) => ({
-          title: (route.params as any)?.chapter?.chapterTitle || 'Audio Player'
-        })}
-      />
+
     </Stack.Navigator>
   );
 };
