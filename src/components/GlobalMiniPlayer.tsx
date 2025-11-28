@@ -31,8 +31,24 @@ const GlobalMiniPlayer: React.FC = () => {
     content,
     togglePlayback,
     playNextParagraph,
+    playPreviousParagraph,
+    setVoices,
+    narratorVoice,
+    dialogueVoice,
     closePlayer,
   } = useAudio();
+
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+
+  const VOICE_OPTIONS = [
+    { label: "Ava (Female, US)", value: "en-US-AvaMultilingualNeural" },
+    { label: "Christopher (Male, US)", value: "en-US-ChristopherNeural" },
+    { label: "Jenny (Female, US)", value: "en-US-JennyNeural" },
+    { label: "Sonia (Female, UK)", value: "en-GB-SoniaNeural" },
+    { label: "Ryan (Male, UK)", value: "en-GB-RyanNeural" },
+    { label: "Andrew (Male, US, Multilingual)", value: "en-US-AndrewMultilingualNeural" },
+    { label: "Emma (Female, US, Multilingual)", value: "en-US-EmmaMultilingualNeural" },
+  ];
 
   const navigation = useNavigation<NavigationProp>();
   const [showFullTextModal, setShowFullTextModal] = useState(false);
@@ -157,6 +173,68 @@ const GlobalMiniPlayer: React.FC = () => {
               <Text style={styles.fullText}>{currentText}</Text>
             </ScrollView>
             <View style={styles.modalFooter}>
+              {/* Playback Controls */}
+              <View style={styles.modalPlaybackControls}>
+                <TouchableOpacity onPress={playPreviousParagraph} style={styles.modalControlBtn}>
+                  <MaterialIcons name="skip-previous" size={32} color="#fff" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity onPress={togglePlayback} style={styles.modalPlayBtn}>
+                  <MaterialIcons name={isPlaying ? "pause" : "play-arrow"} size={40} color="#fff" />
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={playNextParagraph} style={styles.modalControlBtn}>
+                  <MaterialIcons name="skip-next" size={32} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Voice Controls Toggle */}
+              <TouchableOpacity 
+                style={styles.voiceSettingsToggle}
+                onPress={() => setShowVoiceSettings(!showVoiceSettings)}
+              >
+                <Text style={styles.voiceSettingsTitle}>Voice Settings</Text>
+                <MaterialIcons name={showVoiceSettings ? "expand-less" : "expand-more"} size={24} color="#64b5f6" />
+              </TouchableOpacity>
+
+              {showVoiceSettings && (
+                <View style={styles.voiceSettingsContainer}>
+                  <View style={styles.voiceRow}>
+                    <Text style={styles.voiceLabel}>Narrator:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {VOICE_OPTIONS.map(v => (
+                        <TouchableOpacity 
+                          key={v.value}
+                          style={[styles.voiceChip, narratorVoice === v.value && styles.voiceChipActive]}
+                          onPress={() => setVoices(v.value, dialogueVoice)}
+                        >
+                          <Text style={[styles.voiceChipText, narratorVoice === v.value && styles.voiceChipTextActive]}>
+                            {v.label.split(' ')[0]}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  
+                  <View style={styles.voiceRow}>
+                    <Text style={styles.voiceLabel}>Dialogue:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {VOICE_OPTIONS.map(v => (
+                        <TouchableOpacity 
+                          key={v.value}
+                          style={[styles.voiceChip, dialogueVoice === v.value && styles.voiceChipActive]}
+                          onPress={() => setVoices(narratorVoice, v.value)}
+                        >
+                          <Text style={[styles.voiceChipText, dialogueVoice === v.value && styles.voiceChipTextActive]}>
+                            {v.label.split(' ')[0]}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+
                <TouchableOpacity
                 style={styles.modalButton}
                 onPress={handleGoToChapter}
@@ -274,6 +352,80 @@ const styles = StyleSheet.create({
   },
   modalButtonText: {
     color: '#fff',
+    fontWeight: 'bold',
+  },
+
+  modalPlaybackControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    width: '100%',
+  },
+  modalControlBtn: {
+    padding: 10,
+    marginHorizontal: 15,
+  },
+  modalPlayBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#2196F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  voiceSettingsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    marginTop: 5,
+  },
+  voiceSettingsTitle: {
+    color: '#64b5f6',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  voiceSettingsContainer: {
+    width: '100%',
+    marginBottom: 15,
+  },
+  voiceRow: {
+    marginBottom: 10,
+  },
+  voiceLabel: {
+    color: '#aaa',
+    fontSize: 12,
+    marginBottom: 5,
+    marginLeft: 4,
+  },
+  voiceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    backgroundColor: '#333',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  voiceChipActive: {
+    backgroundColor: 'rgba(33, 150, 243, 0.2)',
+    borderColor: '#2196F3',
+  },
+  voiceChipText: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  voiceChipTextActive: {
+    color: '#2196F3',
     fontWeight: 'bold',
   },
 });
