@@ -227,10 +227,21 @@ export class AudioCacheManager {
    * Intelligent preloading based on character count threshold (non-blocking)
    */
   private triggerPreload(currentIndex: number, allParagraphs: string[]): void {
-    // Make this completely non-blocking
+    // Make this completely non-blocking and immediate for better performance
     setTimeout(async () => {
       try {
         console.log(`🔄 Triggering preload from paragraph ${currentIndex}`);
+
+        // PRIORITY: Ensure immediate next paragraph is always ready first
+        const immediateNext = currentIndex + 1;
+        if (immediateNext < allParagraphs.length &&
+            !this.cache.has(immediateNext) &&
+            !this.activeRequests.has(immediateNext)) {
+          console.log(`🚀 PRIORITY preloading next paragraph ${immediateNext} for seamless transition`);
+          this.loadAudioForParagraph(immediateNext, allParagraphs[immediateNext]).catch(error => {
+            console.warn(`Failed to preload priority paragraph ${immediateNext}:`, error);
+          });
+        }
 
         let totalCharacters = 0;
         let preloadCount = 0;
@@ -243,7 +254,8 @@ export class AudioCacheManager {
 
           // Preload this paragraph if not already cached/loading
           if (!this.cache.has(i) && !this.activeRequests.has(i)) {
-            console.log(`📋 Preloading paragraph ${i} (${paragraph.length} chars)`);
+            const isPriority = (i === immediateNext) ? " (PRIORITY)" : "";
+            console.log(`📋 Preloading paragraph ${i} (${paragraph.length} chars)${isPriority}`);
             this.loadAudioForParagraph(i, paragraph).catch(error => {
               console.warn(`Failed to preload paragraph ${i}:`, error);
             });
@@ -261,7 +273,7 @@ export class AudioCacheManager {
       } catch (error) {
         console.warn('Error in preload trigger:', error);
       }
-    }, 100); // Small delay to ensure current audio loads first
+    }, 10); // Minimal delay for immediate preloading
   }
 
   /**

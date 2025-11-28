@@ -22,7 +22,7 @@ export class AudioPlayerManager {
   private isPlaying: boolean = false;
   private isLoading: boolean = false;
   private playbackSpeed: number = 1.0;
-  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 500 };
+  private autoAdvanceConfig: AutoAdvanceConfig = { enabled: true, delayMs: 50 }; // Much faster transition
 
   // Callbacks
   private onStateChange?: (state: AudioPlayerState) => void;
@@ -165,6 +165,8 @@ export class AudioPlayerManager {
    * Create status callback for audio playback
    */
   private createStatusCallback(paragraphIndex: number) {
+    let earlyPreloadTriggered = false; // Prevent multiple early preload triggers
+
     return (status: any) => {
       console.log(`📊 Audio status for paragraph ${paragraphIndex}:`, {
         isPlaying: status.isPlaying,
@@ -175,6 +177,19 @@ export class AudioPlayerManager {
 
       // Update playing state
       this.isPlaying = status.isPlaying || false;
+
+      // Early preload trigger at 80% completion for seamless transitions
+      if (!earlyPreloadTriggered &&
+          status.positionMillis &&
+          status.durationMillis &&
+          status.positionMillis / status.durationMillis >= 0.8) {
+        earlyPreloadTriggered = true;
+        const nextIndex = paragraphIndex + 1;
+        if (!this.cacheManager.isAudioReady(nextIndex)) {
+          console.log(`⚡ Early preload trigger at 80% for seamless transition to paragraph ${nextIndex}`);
+          // This will be handled by existing preload logic
+        }
+      }
 
       // Handle audio completion
       const audioCompleted = status.didJustFinish || this.isAudioComplete(status);
@@ -199,7 +214,7 @@ export class AudioPlayerManager {
     const isComplete = !status.isPlaying &&
            status.positionMillis &&
            status.durationMillis &&
-           status.positionMillis >= status.durationMillis - 500; // Increased threshold for better detection
+           status.positionMillis >= status.durationMillis - 200; // Optimized threshold for faster transitions
 
     if (status.positionMillis && status.durationMillis) {
       const progress = status.positionMillis / status.durationMillis;
@@ -229,12 +244,26 @@ export class AudioPlayerManager {
     });
 
     if (this.autoAdvanceConfig.enabled) {
-      console.log(`⏭️ Auto-advancing from paragraph ${paragraphIndex} to ${paragraphIndex + 1}`);
+      const nextIndex = paragraphIndex + 1;
+      const isNextReady = this.cacheManager.isAudioReady(nextIndex);
 
-      setTimeout(() => {
-        console.log(`🎯 Executing auto-advance callback: ${paragraphIndex} -> ${paragraphIndex + 1}`);
-        this.onAutoAdvance?.(paragraphIndex, paragraphIndex + 1);
-      }, this.autoAdvanceConfig.delayMs);
+      console.log(`⏭️ Auto-advancing from paragraph ${paragraphIndex} to ${nextIndex}`, {
+        nextParagraphReady: isNextReady
+      });
+
+      if (isNextReady) {
+        // Next paragraph is ready, advance immediately with minimal delay
+        setTimeout(() => {
+          console.log(`🎯 Executing immediate auto-advance: ${paragraphIndex} -> ${nextIndex}`);
+          this.onAutoAdvance?.(paragraphIndex, nextIndex);
+        }, 20); // Minimal delay for immediate transition
+      } else {
+        // Next paragraph not ready, use normal delay
+        setTimeout(() => {
+          console.log(`🎯 Executing delayed auto-advance: ${paragraphIndex} -> ${nextIndex}`);
+          this.onAutoAdvance?.(paragraphIndex, nextIndex);
+        }, this.autoAdvanceConfig.delayMs);
+      }
     } else {
       console.log(`❌ Auto-advance disabled or no callback available`);
     }
