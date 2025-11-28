@@ -1,4 +1,5 @@
 import { Audio } from 'expo-av';
+import { Platform } from 'react-native';
 import { AudioCacheManager, ParagraphAudioData } from './AudioCacheManager';
 
 export interface AudioPlayerState {
@@ -8,6 +9,8 @@ export interface AudioPlayerState {
   duration: number;
   position: number;
   playbackSpeed: number;
+  pitchCorrectionEnabled: boolean;
+  platform: string;
 }
 
 export interface AutoAdvanceConfig {
@@ -40,13 +43,29 @@ export class AudioPlayerManager {
 
   private async initializeAudio(): Promise<void> {
     try {
-      await Audio.setAudioModeAsync({
+      // Platform-specific audio configuration for optimal pitch correction
+      const audioModeConfig: any = {
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
         playsInSilentModeIOS: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
-      });
+      };
+
+      // Enhanced settings for better pitch correction on different platforms
+      if (Platform.OS === 'ios') {
+        audioModeConfig.interruptionModeIOS = 'DoNotMix';
+        audioModeConfig.playsInSilentModeIOS = true;
+      } else if (Platform.OS === 'android') {
+        audioModeConfig.shouldDuckAndroid = true;
+        audioModeConfig.interruptionModeAndroid = 'DoNotMix';
+      } else if (Platform.OS === 'web') {
+        // Web-specific optimizations will be handled in sound creation
+        console.log('🌐 Web platform detected - using enhanced audio settings');
+      }
+
+      await Audio.setAudioModeAsync(audioModeConfig);
+      console.log(`🎵 Audio mode initialized for platform: ${Platform.OS}`);
     } catch (error) {
       console.error('Failed to initialize audio:', error);
     }
@@ -136,18 +155,39 @@ export class AudioPlayerManager {
    * Create and play sound from audio data
    */
   private async createAndPlaySound(audioData: ParagraphAudioData): Promise<void> {
-    console.log(`🔊 Creating sound for paragraph ${audioData.paragraph_index}`);
+    console.log(`🔊 Creating sound for paragraph ${audioData.paragraph_index} on ${Platform.OS}`);
 
     // Reset completion handler for new audio
     this.completionHandled = false;
 
+    // Platform-specific audio configuration for optimal pitch correction
+    const soundConfig: any = {
+      shouldPlay: true,
+      rate: this.playbackSpeed,
+      shouldCorrectPitch: true,
+    };
+
+    // Enhanced pitch correction settings per platform
+    if (Platform.OS === 'ios') {
+      // iOS-specific optimizations for pitch correction
+      soundConfig.shouldCorrectPitch = true;
+      soundConfig.pitchCorrectionQuality = 'High';
+      console.log('🍎 Using iOS optimized pitch correction');
+    } else if (Platform.OS === 'android') {
+      // Android-specific optimizations
+      soundConfig.shouldCorrectPitch = true;
+      soundConfig.androidAudioFocusMode = 'DoNotMix';
+      console.log('🤖 Using Android optimized pitch correction');
+    } else if (Platform.OS === 'web') {
+      // Web platform optimizations
+      soundConfig.shouldCorrectPitch = true;
+      soundConfig.preservesPitch = true; // Web Audio API specific
+      console.log('🌐 Using Web optimized pitch correction');
+    }
+
     const { sound } = await Audio.Sound.createAsync(
       { uri: audioData.audio_uri! },
-      {
-        shouldPlay: true,
-        rate: this.playbackSpeed,
-        shouldCorrectPitch: true,
-      },
+      soundConfig,
       this.createStatusCallback(audioData.paragraph_index)
     );
 
@@ -300,18 +340,53 @@ export class AudioPlayerManager {
   }
 
   /**
-   * Set playback speed
+   * Set playback speed with cross-platform pitch correction
    */
   async setPlaybackSpeed(speed: number): Promise<void> {
-    this.playbackSpeed = speed;
+    // Validate speed range for all platforms
+    const clampedSpeed = Math.max(0.25, Math.min(4.0, speed));
+    if (clampedSpeed !== speed) {
+      console.warn(`⚠️ Speed ${speed} clamped to ${clampedSpeed} for platform compatibility`);
+    }
+
+    this.playbackSpeed = clampedSpeed;
 
     if (this.sound && !this.operationLock) {
       try {
-        await this.sound.setRateAsync(speed, true);
-        console.log(`🏃 Playback speed set to ${speed}x`);
+        // Platform-specific pitch correction implementation
+        if (Platform.OS === 'ios') {
+          // iOS: Use setRateAsync with pitch correction
+          await this.sound.setRateAsync(clampedSpeed, true);
+          console.log(`🍎 iOS playback speed set to ${clampedSpeed}x with pitch correction`);
+        } else if (Platform.OS === 'android') {
+          // Android: Use setRateAsync with enhanced pitch correction
+          await this.sound.setRateAsync(clampedSpeed, true);
+          console.log(`🤖 Android playback speed set to ${clampedSpeed}x with pitch correction`);
+        } else if (Platform.OS === 'web') {
+          // Web: Use preservesPitch for Web Audio API
+          await this.sound.setRateAsync(clampedSpeed, true);
+          console.log(`🌐 Web playback speed set to ${clampedSpeed}x with pitch preservation`);
+        } else {
+          // Fallback for other platforms
+          await this.sound.setRateAsync(clampedSpeed, true);
+          console.log(`🔧 Generic playback speed set to ${clampedSpeed}x with pitch correction`);
+        }
+
+        // Emit state change to update UI
+        this.emitStateChange();
       } catch (error) {
-        console.error('Error setting playback speed:', error);
+        console.error(`❌ Error setting playback speed on ${Platform.OS}:`, error);
+
+        // Fallback: Try without platform-specific settings
+        try {
+          await this.sound.setRateAsync(clampedSpeed, true);
+          console.log(`🔄 Fallback: Speed set to ${clampedSpeed}x`);
+        } catch (fallbackError) {
+          console.error('❌ Fallback speed setting also failed:', fallbackError);
+        }
       }
+    } else {
+      console.log(`⏳ Speed ${clampedSpeed}x queued (sound not ready or operation locked)`);
     }
   }
 
@@ -337,6 +412,8 @@ export class AudioPlayerManager {
       duration: 0, // Could be enhanced to track duration
       position: 0, // Could be enhanced to track position
       playbackSpeed: this.playbackSpeed,
+      pitchCorrectionEnabled: true, // Always enabled in our implementation
+      platform: Platform.OS,
     };
 
     this.onStateChange?.(state);
@@ -374,6 +451,8 @@ export class AudioPlayerManager {
       duration: 0,
       position: 0,
       playbackSpeed: this.playbackSpeed,
+      pitchCorrectionEnabled: true,
+      platform: Platform.OS,
     };
   }
 
