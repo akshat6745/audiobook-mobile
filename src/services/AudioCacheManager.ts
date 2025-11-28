@@ -55,13 +55,32 @@ export class AudioCacheManager {
   ): Promise<ParagraphAudioData | null> {
     console.log(`🎵 Getting audio for paragraph ${paragraphIndex}`);
 
-    // Check if we have valid cached audio
+    // Check if we have valid cached audio with data integrity validation
     const cached = this.cache.get(paragraphIndex);
-    if (cached?.audio_received && cached.audio_uri) {
-      console.log(`✅ Using cached audio for paragraph ${paragraphIndex}`);
-      // Trigger preload for upcoming paragraphs (non-blocking) with current speed
-      this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
-      return cached;
+    if (cached) {
+      // Validate cache entry integrity
+      const isValid = cached.audio_received === true &&
+                     typeof cached.audio_uri === 'string' &&
+                     cached.audio_uri.length > 0;
+
+      if (isValid) {
+        console.log(`✅ Using cached audio for paragraph ${paragraphIndex}`);
+        // Trigger preload for upcoming paragraphs (non-blocking) with current speed
+        this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
+        return cached;
+      } else {
+        // Clean up corrupted cache entry
+        console.warn(`⚠️ Corrupted cache entry detected for paragraph ${paragraphIndex}`, {
+          audio_received: cached.audio_received,
+          audio_received_type: typeof cached.audio_received,
+          audio_uri: cached.audio_uri,
+          audio_uri_type: typeof cached.audio_uri,
+          is_loading: cached.is_loading,
+          is_loading_type: typeof cached.is_loading
+        });
+        this.cache.delete(paragraphIndex);
+        console.log(`🗑️ Removed corrupted cache entry for paragraph ${paragraphIndex}`);
+      }
     }
 
     // Check if already loading - wait for it
@@ -70,11 +89,22 @@ export class AudioCacheManager {
       try {
         await this.activeRequests.get(paragraphIndex);
         const loadedData = this.cache.get(paragraphIndex);
-        if (loadedData?.audio_received && loadedData.audio_uri) {
-          console.log(`✅ Audio ready after wait for paragraph ${paragraphIndex}`);
-          // Trigger preload (non-blocking) with current speed
-          this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
-          return loadedData;
+        if (loadedData) {
+          const isValid = loadedData.audio_received === true &&
+                         typeof loadedData.audio_uri === 'string' &&
+                         loadedData.audio_uri.length > 0;
+
+          if (isValid) {
+            console.log(`✅ Audio ready after wait for paragraph ${paragraphIndex}`);
+            // Trigger preload (non-blocking) with current speed
+            this.triggerPreload(paragraphIndex, allParagraphs, this.currentPlaybackSpeed);
+            return loadedData;
+          } else {
+            console.warn(`⚠️ Invalid data after wait for paragraph ${paragraphIndex}`, {
+              audio_received: loadedData.audio_received,
+              audio_uri_valid: typeof loadedData.audio_uri === 'string' && loadedData.audio_uri.length > 0
+            });
+          }
         }
       } catch (error) {
         console.error(`❌ Error waiting for paragraph ${paragraphIndex}:`, error);
@@ -94,17 +124,33 @@ export class AudioCacheManager {
   }
 
   /**
-   * Load audio for a specific paragraph
+   * Load audio for a specific paragraph with enhanced race condition protection
    */
   private async loadAudioForParagraph(
     paragraphIndex: number,
     paragraphText: string
   ): Promise<ParagraphAudioData | null> {
-    // Double check if already cached (race condition protection)
+    // Double check if already cached with data validation (race condition protection)
     const existing = this.cache.get(paragraphIndex);
-    if (existing?.audio_received && existing.audio_uri) {
-      console.log(`🔄 Audio already loaded for paragraph ${paragraphIndex}`);
-      return existing;
+    if (existing) {
+      const isValid = existing.audio_received === true &&
+                     typeof existing.audio_uri === 'string' &&
+                     existing.audio_uri.length > 0;
+
+      if (isValid) {
+        console.log(`🔄 Audio already loaded for paragraph ${paragraphIndex}`);
+        return existing;
+      } else if (existing.audio_received !== undefined) {
+        // Clean up invalid cache entry
+        console.warn(`⚠️ Cleaning invalid cache entry for paragraph ${paragraphIndex}`);
+        this.cache.delete(paragraphIndex);
+      }
+    }
+
+    // Check if already being loaded by another request
+    if (this.activeRequests.has(paragraphIndex)) {
+      console.log(`⏳ Another request already loading paragraph ${paragraphIndex}, skipping duplicate`);
+      return null;
     }
 
     const loadPromise = this._loadAudioInternal(paragraphIndex, paragraphText);
@@ -120,15 +166,31 @@ export class AudioCacheManager {
         is_loading: loadedData?.is_loading
       });
 
-      if (loadedData?.audio_received && loadedData.audio_uri) {
-        console.log(`✅ Successfully loaded audio for paragraph ${paragraphIndex}`);
-        return loadedData;
+      // Validate data integrity with detailed logging
+      if (loadedData) {
+        const isValid = loadedData.audio_received === true && !!loadedData.audio_uri;
+
+        if (isValid) {
+          console.log(`✅ Successfully loaded audio for paragraph ${paragraphIndex}`);
+          return loadedData;
+        } else {
+          console.error(`❌ Audio data incomplete for paragraph ${paragraphIndex}`, {
+            audio_received: loadedData.audio_received,
+            audio_received_type: typeof loadedData.audio_received,
+            has_audio_uri: !!loadedData.audio_uri,
+            audio_uri_type: typeof loadedData.audio_uri,
+            is_loading: loadedData.is_loading,
+            is_loading_type: typeof loadedData.is_loading,
+            cache_entry: loadedData
+          });
+
+          // Clean up corrupted entry
+          this.cache.delete(paragraphIndex);
+          console.log(`🗑️ Removed corrupted cache entry for paragraph ${paragraphIndex}`);
+          return null;
+        }
       } else {
-        console.error(`❌ Audio data incomplete for paragraph ${paragraphIndex}`, {
-          audio_received: loadedData?.audio_received,
-          has_audio_uri: !!loadedData?.audio_uri,
-          is_loading: loadedData?.is_loading
-        });
+        console.error(`❌ No data found in cache for paragraph ${paragraphIndex} after loading`);
         return null;
       }
     } catch (error) {
@@ -142,17 +204,28 @@ export class AudioCacheManager {
   private async _loadAudioInternal(paragraphIndex: number, paragraphText: string): Promise<void> {
     console.log(`📡 Loading audio for paragraph ${paragraphIndex}`);
 
-    // Create cache entry
+    // Check if already in cache and valid to prevent race conditions
+    const existingData = this.cache.get(paragraphIndex);
+    if (existingData?.audio_received === true && existingData.audio_uri) {
+      console.log(`🔄 Audio already loaded for paragraph ${paragraphIndex}, skipping`);
+      return;
+    }
+
+    // Create or update cache entry with proper initialization
     const audioData: ParagraphAudioData = {
       paragraph_index: paragraphIndex,
       paragraph_text: paragraphText,
-      audio_received: false,
-      is_loading: true,
+      audio_received: false, // Explicitly set to false
+      is_loading: true, // Explicitly set to true
       created_at: Date.now(),
       character_count: paragraphText.length,
     };
 
     this.cache.set(paragraphIndex, audioData);
+    console.log(`💾 Cache entry created for paragraph ${paragraphIndex}:`, {
+      audio_received: audioData.audio_received,
+      is_loading: audioData.is_loading
+    });
 
     try {
       // Make TTS API call
@@ -174,10 +247,19 @@ export class AudioCacheManager {
       const audioBlob = await response.blob();
       const fileUri = await this.saveAudioToFile(paragraphIndex, audioBlob);
 
-      // Update cache entry
+      // Update cache entry with explicit values
       audioData.audio_received = true;
       audioData.audio_uri = fileUri;
       audioData.is_loading = false;
+
+      // Ensure the cache is properly updated
+      this.cache.set(paragraphIndex, audioData);
+
+      console.log(`💾 Cache entry updated for paragraph ${paragraphIndex}:`, {
+        audio_received: audioData.audio_received,
+        audio_uri: !!audioData.audio_uri,
+        is_loading: audioData.is_loading
+      });
 
       // Get audio duration
       try {
@@ -194,8 +276,16 @@ export class AudioCacheManager {
       console.log(`✅ Audio loaded for paragraph ${paragraphIndex}, duration: ${audioData.audio_duration}ms`);
 
     } catch (error) {
+      // Ensure proper error state in cache
       audioData.is_loading = false;
+      audioData.audio_received = false;
+      this.cache.set(paragraphIndex, audioData);
+
       console.error(`❌ Error loading audio for paragraph ${paragraphIndex}:`, error);
+      console.log(`💾 Cache entry error state for paragraph ${paragraphIndex}:`, {
+        audio_received: audioData.audio_received,
+        is_loading: audioData.is_loading
+      });
       throw error;
     }
   }
@@ -346,11 +436,23 @@ export class AudioCacheManager {
   }
 
   /**
-   * Check if audio is ready for a paragraph
+   * Check if audio is ready for a paragraph with data validation
    */
   isAudioReady(paragraphIndex: number): boolean {
     const cached = this.cache.get(paragraphIndex);
-    return cached?.audio_received && !!cached.audio_uri;
+    if (!cached) return false;
+
+    const isValid = cached.audio_received === true &&
+                   typeof cached.audio_uri === 'string' &&
+                   cached.audio_uri.length > 0;
+
+    if (!isValid && cached.audio_received !== undefined) {
+      // Clean up invalid entry
+      console.warn(`⚠️ Invalid cache entry detected in isAudioReady for paragraph ${paragraphIndex}`);
+      this.cache.delete(paragraphIndex);
+    }
+
+    return isValid;
   }
 
   /**
