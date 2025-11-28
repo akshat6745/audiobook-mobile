@@ -92,6 +92,59 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [narratorVoice, dialogueVoice]);
 
+  // Update callbacks when content changes to avoid stale closures
+  useEffect(() => {
+    if (audioPlayerManager.current && content.length > 0) {
+      console.log(`🔄 Setting callbacks with content length: ${content.length}`);
+
+      audioPlayerManager.current.setCallbacks({
+        onStateChange: (state) => {
+          console.log('🔄 Audio state changed:', state);
+          setAudioPlayerState(state);
+          setActiveParagraphIndex(state.currentIndex);
+          setIsPlaying(state.isPlaying);
+
+          if (state.currentIndex !== null) {
+            setShowMiniPlayer(true);
+          }
+        },
+        onAutoAdvance: async (fromIndex, toIndex) => {
+          console.log(`⏭️ Auto-advancing from ${fromIndex} to ${toIndex}`);
+
+          console.log(`📋 Current content length: ${content.length}, toIndex: ${toIndex}`);
+
+          if (toIndex < content.length && audioPlayerManager.current && content[toIndex]) {
+            try {
+              console.log(`🚀 Executing auto-advance playParagraph with content: "${content[toIndex].substring(0, 50)}..."`);
+              const success = await audioPlayerManager.current.playParagraph(
+                toIndex,
+                content[toIndex],
+                content
+              );
+              console.log(`🎯 Auto-advance playParagraph result: ${success}`);
+            } catch (error) {
+              console.error(`❌ Error in auto-advance:`, error);
+              // Fallback to regular paragraph press
+              console.log(`🔄 Fallback to handleParagraphPress`);
+              handleParagraphPress(toIndex);
+            }
+          } else {
+            console.warn(`⚠️ Auto-advance failed:`, {
+              toIndex,
+              contentLength: content.length,
+              hasManager: !!audioPlayerManager.current,
+              hasContent: !!content[toIndex]
+            });
+          }
+        },
+        onError: (error) => {
+          console.error('🚨 Audio player error:', error);
+          Alert.alert('Audio Error', error.message);
+        },
+      });
+    }
+  }, [content, handleParagraphPress]);
+
   const initializeAudioSystem = async () => {
     console.log('🎵 Initializing new audio system');
 
@@ -110,29 +163,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     // Create audio player manager
     audioPlayerManager.current = new AudioPlayerManager(audioCacheManager.current);
 
-    // Set up callbacks
-    audioPlayerManager.current.setCallbacks({
-      onStateChange: (state) => {
-        console.log('🔄 Audio state changed:', state);
-        setAudioPlayerState(state);
-        setActiveParagraphIndex(state.currentIndex);
-        setIsPlaying(state.isPlaying);
-
-        if (state.currentIndex !== null) {
-          setShowMiniPlayer(true);
-        }
-      },
-      onAutoAdvance: (fromIndex, toIndex) => {
-        console.log(`⏭️ Auto-advancing from ${fromIndex} to ${toIndex}`);
-        if (toIndex < content.length) {
-          handleParagraphPress(toIndex);
-        }
-      },
-      onError: (error) => {
-        console.error('🚨 Audio player error:', error);
-        Alert.alert('Audio Error', error.message);
-      },
-    });
+    // Note: Callbacks will be set in useEffect when content is loaded
 
     // Configure auto-advance
     audioPlayerManager.current.configureAutoAdvance({
