@@ -227,7 +227,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     // Configure auto-advance
     audioPlayerManager.current.configureAutoAdvance({
       enabled: true,
-      delayMs: 500,
+      delayMs: 0,
     });
 
     console.log('✅ Audio system initialized');
@@ -419,7 +419,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderParagraph = (paragraph: string, index: number) => {
     const isActive = audioPlayerState.currentIndex === index;
-    const isLoading = audioPlayerState.isLoading && audioPlayerState.currentIndex === index;
+    // Removed isLoading check for UI simplification
+
 
     return (
       <View
@@ -455,23 +456,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
             }
           ]}
         >
-          {/* Audio loading indicator */}
-          {isLoading && (
-            <View style={styles.loadingIndicator}>
-              <ActivityIndicator size="small" color="#64b5f6" />
-            </View>
-          )}
+          {/* Audio loading and playing indicators removed for simpler UI */}
 
-          {/* Playing icon for active paragraph */}
-          {isActive && !isLoading && (
-            <View style={styles.playingIndicator}>
-              <MaterialIcons
-                name={audioPlayerState.isPlaying ? "volume-up" : "pause"}
-                size={18}
-                color="#64b5f6"
-              />
-            </View>
-          )}
 
           <Text style={[
             index === 0 ? styles.chapterTitleText : styles.paragraph, // Special style for title
@@ -497,10 +483,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 fontWeight: isActive ? '600' : '400',
               }
             ]}>
-              {isActive && audioPlayerState.isPlaying ? '🎵 Playing' :
-               isActive && !audioPlayerState.isPlaying && !isLoading ? '⏸️ Paused' :
-               isLoading ? '⏳ Loading...' :
-               index === 0 ? 'Chapter Title' : `Paragraph ${index}`}
+              {index === 0 ? 'Chapter Title' : `Paragraph ${index}`}
             </Text>
 
             {/* Word count for better reading experience */}
@@ -955,21 +938,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontStyle: 'italic',
   },
-  loadingIndicator: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-  playingIndicator: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 1,
-    backgroundColor: 'rgba(100, 181, 246, 0.1)',
-    borderRadius: 12,
-    padding: 4,
-  },
+
   toolbar: {
     position: 'absolute',
     bottom: 0,
