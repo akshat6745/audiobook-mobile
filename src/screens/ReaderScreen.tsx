@@ -232,9 +232,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
                 ? (backgroundColor === '#fff' ? '#1565c0' : '#90caf9')
                 : textColor,
               fontWeight: index === 0 ? '700' : (isActive ? '600' : '400'),
-              lineHeight: fontSize * (index === 0 ? 1.3 : 1.6),
+              lineHeight: fontSize * (index === 0 ? 1.5 : 1.6), // Increased line height for title
               marginTop: isActive ? 4 : 0,
               textAlign: index === 0 ? 'center' : 'justify',
+              paddingVertical: index === 0 ? 4 : 0, // Add padding to prevent clipping
             }
           ]}>
             {paragraph}
