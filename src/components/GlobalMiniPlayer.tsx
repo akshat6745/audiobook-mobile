@@ -36,9 +36,14 @@ const GlobalMiniPlayer: React.FC = () => {
     narratorVoice,
     dialogueVoice,
     closePlayer,
+    playbackSpeed,
+    setPlaybackSpeed,
   } = useAudio();
 
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [showSpeedSettings, setShowSpeedSettings] = useState(false);
+
+  const SPEED_OPTIONS = [0.75, 1.0, 1.25, 1.5, 2.0];
 
   const VOICE_OPTIONS = [
     { label: "Ava (Female, US)", value: "en-US-AvaMultilingualNeural" },
@@ -187,6 +192,36 @@ const GlobalMiniPlayer: React.FC = () => {
                   <MaterialIcons name="skip-next" size={32} color="#fff" />
                 </TouchableOpacity>
               </View>
+
+              {/* Speed Controls Toggle */}
+              <TouchableOpacity 
+                style={styles.voiceSettingsToggle}
+                onPress={() => setShowSpeedSettings(!showSpeedSettings)}
+              >
+                <Text style={styles.voiceSettingsTitle}>Playback Speed</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <Text style={{color: '#aaa', marginRight: 8}}>{playbackSpeed}x</Text>
+                  <MaterialIcons name={showSpeedSettings ? "expand-less" : "expand-more"} size={24} color="#64b5f6" />
+                </View>
+              </TouchableOpacity>
+
+              {showSpeedSettings && (
+                <View style={styles.voiceSettingsContainer}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {SPEED_OPTIONS.map(speed => (
+                      <TouchableOpacity 
+                        key={speed}
+                        style={[styles.voiceChip, playbackSpeed === speed && styles.voiceChipActive]}
+                        onPress={() => setPlaybackSpeed(speed)}
+                      >
+                        <Text style={[styles.voiceChipText, playbackSpeed === speed && styles.voiceChipTextActive]}>
+                          {speed}x
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Voice Controls Toggle */}
               <TouchableOpacity 

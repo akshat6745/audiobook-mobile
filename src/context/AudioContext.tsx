@@ -52,8 +52,8 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
   const [isChapterLoading, setIsChapterLoading] = useState(false);
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState<number | null>(null);
   const [playbackSpeed, setPlaybackSpeedState] = useState(1.0);
-  const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
-  const [dialogueVoice, setDialogueVoice] = useState("en-US-AvaMultilingualNeural");
+  const [narratorVoice, setNarratorVoice] = useState("en-US-AvaMultilingualNeural");
+  const [dialogueVoice, setDialogueVoice] = useState("en-US-RyanNeural");
   const [audioPlayerState, setAudioPlayerState] = useState<AudioPlayerState>({
     isPlaying: false,
     currentIndex: null,

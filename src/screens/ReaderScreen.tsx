@@ -54,8 +54,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [showSpeedModal, setShowSpeedModal] = useState(false);
   const [showNarratorModal, setShowNarratorModal] = useState(false);
   const [showDialogueModal, setShowDialogueModal] = useState(false);
-  const [narratorVoice, setNarratorVoice] = useState("en-US-ChristopherNeural");
-  const [dialogueVoice, setDialogueVoice] = useState("en-US-AvaMultilingualNeural");
+  const [narratorVoice, setNarratorVoice] = useState("en-US-AvaMultilingualNeural");
+  const [dialogueVoice, setDialogueVoice] = useState("en-GB-RyanNeural");
 
   const scrollViewRef = useRef<ScrollView>(null);
   const paragraphRefs = useRef<{ [key: number]: View | null }>({});
