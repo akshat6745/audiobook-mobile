@@ -17,7 +17,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 // import { BlurView } from 'expo-blur'; // Removed for compatibility
-import { novelAPI } from '../services/api';
+import { novelAPI, userAPI } from '../services/api';
 import { Novel, RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Theme from '../styles/theme';
@@ -31,6 +31,7 @@ interface Props {
 const NovelListScreen: React.FC<Props> = ({ navigation }) => {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [filteredNovels, setFilteredNovels] = useState<Novel[]>([]);
+  const [progressMap, setProgressMap] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +60,19 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
       const novelsData = await novelAPI.getAllNovels();
       setNovels(novelsData);
       setFilteredNovels(novelsData);
+
+      if (user) {
+        try {
+          const progressList = await userAPI.getUserProgress(user);
+          const progress: Record<string, number> = {};
+          progressList.forEach(p => {
+            progress[p.novelName] = p.lastChapterRead;
+          });
+          setProgressMap(progress);
+        } catch (err) {
+          console.error('Error loading progress:', err);
+        }
+      }
     } catch (error) {
       console.error('Error loading novels:', error);
 
@@ -191,6 +205,16 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
                 </Text>
               </View>
             )}
+            
+            {progressMap[item.title] && (
+              <View style={styles.lastReadBadge}>
+                <MaterialIcons name="history" size={14} color={Theme.colors.success[400]} />
+                <Text style={styles.lastReadText}>
+                  Ch. {progressMap[item.title]}
+                </Text>
+              </View>
+            )}
+
             <View style={[styles.sourceTag, { backgroundColor: getSourceColor(item.source) + '20' }]}>
               <Text style={[styles.sourceText, { color: getSourceColor(item.source) }]}>
                 {item.source === 'epub_upload' ? 'EPUB' : 'WEB'}
@@ -419,6 +443,22 @@ const styles = StyleSheet.create({
   },
   sourceText: {
     fontSize: Theme.typography.fontSizes.xs,
+    fontWeight: Theme.typography.fontWeights.bold,
+  },
+  lastReadBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    paddingHorizontal: Theme.spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.3)',
+  },
+  lastReadText: {
+    fontSize: Theme.typography.fontSizes.xs,
+    color: Theme.colors.success[400],
+    marginLeft: 4,
     fontWeight: Theme.typography.fontWeights.bold,
   },
   loadingContainer: {
