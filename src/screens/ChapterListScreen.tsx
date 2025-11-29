@@ -86,38 +86,55 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('Reader', { novel, chapter });
   }, [navigation, novel]);
 
-  const renderChapter = ({ item }: { item: Chapter }) => {
-    const isLastRead = lastReadChapter === item.chapterNumber;
+  const renderChapterCard = (item: Chapter, isLastRead: boolean) => (
+    <View style={styles.chapterCard}>
+      <TouchableOpacity
+        style={[styles.chapterContent, isLastRead && styles.lastReadChapter]}
+        onPress={() => handleChapterPress(item)}
+      >
+        <View style={styles.chapterHeader}>
+          <Text style={styles.chapterNumber}>
+            Chapter {item.chapterNumber}
+          </Text>
+          {isLastRead && (
+            <View style={styles.lastReadBadge}>
+              <Text style={styles.lastReadText}>LAST READ</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.chapterTitle} numberOfLines={2}>
+          {item.chapterTitle}
+        </Text>
+      </TouchableOpacity>
 
-    return (
-      <View style={styles.chapterCard}>
+      <View style={styles.chapterActions}>
         <TouchableOpacity
-          style={[styles.chapterContent, isLastRead && styles.lastReadChapter]}
+          style={[styles.actionButton, styles.readButton]}
           onPress={() => handleChapterPress(item)}
         >
-          <View style={styles.chapterHeader}>
-            <Text style={styles.chapterNumber}>
-              Chapter {item.chapterNumber}
-            </Text>
-            {isLastRead && (
-              <View style={styles.lastReadBadge}>
-                <Text style={styles.lastReadText}>LAST READ</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.chapterTitle} numberOfLines={2}>
-            {item.chapterTitle}
-          </Text>
+          <MaterialIcons name="book" size={20} color={Theme.colors.primary[600]} />
         </TouchableOpacity>
+      </View>
+    </View>
+  );
 
-        <View style={styles.chapterActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.readButton]}
-            onPress={() => handleChapterPress(item)}
-          >
-            <MaterialIcons name="book" size={20} color={Theme.colors.primary[600]} />
-          </TouchableOpacity>
-        </View>
+  const renderChapter = ({ item }: { item: Chapter }) => {
+    const isLastRead = lastReadChapter === item.chapterNumber;
+    return renderChapterCard(item, isLastRead);
+  };
+
+  const renderHeader = () => {
+    const lastReadChapterItem = chapters.find(c => c.chapterNumber === lastReadChapter);
+
+    return (
+      <View>
+        {lastReadChapterItem && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Continue Reading</Text>
+            {renderChapterCard(lastReadChapterItem, true)}
+          </View>
+        )}
+        <Text style={styles.sectionTitle}>All Chapters</Text>
       </View>
     );
   };
@@ -183,6 +200,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
           />
         }
         ListEmptyComponent={renderEmptyState}
+        ListHeaderComponent={renderHeader}
         showsVerticalScrollIndicator={false}
       />
     </View>
@@ -312,6 +330,16 @@ const styles = StyleSheet.create({
     color: '#aaa',
     textAlign: 'center',
     lineHeight: Theme.typography.lineHeights.relaxed * Theme.typography.fontSizes.md,
+  },
+  sectionContainer: {
+    marginBottom: Theme.spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: Theme.typography.fontSizes.lg,
+    fontWeight: Theme.typography.fontWeights.bold,
+    color: Theme.colors.neutral.white,
+    marginBottom: Theme.spacing.md,
+    marginTop: Theme.spacing.sm,
   },
 });
 
