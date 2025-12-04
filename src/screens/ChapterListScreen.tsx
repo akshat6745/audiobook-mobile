@@ -11,12 +11,13 @@ import {
   StatusBar,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
+import { useFocusEffect, RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, UserProgress } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useProgress } from '../context/ProgressContext';
 import Theme from '../styles/theme';
 
 type ChapterListScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChapterList'>;
@@ -32,12 +33,12 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastReadChapter, setLastReadChapter] = useState<number | null>(null);
+  const { progressMap } = useProgress();
+  const lastReadChapter = progressMap[novel.title] || null;
   const { user } = useAuth();
 
   useEffect(() => {
     loadChapters();
-    loadUserProgress();
   }, []);
 
   const loadChapters = async () => {
@@ -65,16 +66,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const loadUserProgress = async () => {
-    if (!user) return;
 
-    try {
-      const progress = await userAPI.getNovelProgress(novel.title, user);
-      setLastReadChapter(progress.lastChapterRead);
-    } catch (error) {
-      console.error('Error loading user progress:', error);
-    }
-  };
 
   const onRefresh = async () => {
     setRefreshing(true);

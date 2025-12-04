@@ -20,6 +20,7 @@ import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
+import { useProgress } from '../context/ProgressContext';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
@@ -45,6 +46,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     currentChapter,
     currentNovel
   } = useAudio();
+  const { updateProgress } = useProgress();
 
   // Local state for UI only
 
@@ -114,7 +116,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     // Save progress whenever the current chapter in context changes
     // This handles both initial load and auto-advance
     if (currentChapter && currentNovel && user) {
-      saveProgress();
+      updateProgress(currentNovel.title, currentChapter.chapterNumber);
     }
   }, [currentChapter?.id, currentNovel?.title]); // Only save when chapter changes in context
 
@@ -129,15 +131,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     await playParagraph(index);
   };
 
-  const saveProgress = async () => {
-    if (!user) return;
 
-    try {
-      await userAPI.saveProgress(user, novel.title, chapter.chapterNumber);
-    } catch (error) {
-      console.error('Error saving progress:', error);
-    }
-  };
 
   const toggleSettings = () => {
     setShowSettings(!showSettings);

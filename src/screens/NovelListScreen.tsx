@@ -14,12 +14,14 @@ import {
   Dimensions,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 // import { BlurView } from 'expo-blur'; // Removed for compatibility
 import { novelAPI, userAPI } from '../services/api';
 import { Novel, RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useProgress } from '../context/ProgressContext';
 import Theme from '../styles/theme';
 
 type NovelListScreenNavigationProp = StackNavigationProp<RootStackParamList, 'NovelList'>;
@@ -31,7 +33,7 @@ interface Props {
 const NovelListScreen: React.FC<Props> = ({ navigation }) => {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [filteredNovels, setFilteredNovels] = useState<Novel[]>([]);
-  const [progressMap, setProgressMap] = useState<Record<string, number>>({});
+  const { progressMap, refreshProgress } = useProgress();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,6 +52,8 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
     }).start();
   }, []);
 
+
+
   useEffect(() => {
     filterNovels();
   }, [searchQuery, novels]);
@@ -61,18 +65,6 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
       setNovels(novelsData);
       setFilteredNovels(novelsData);
 
-      if (user) {
-        try {
-          const progressList = await userAPI.getUserProgress(user);
-          const progress: Record<string, number> = {};
-          progressList.forEach(p => {
-            progress[p.novelName] = p.lastChapterRead;
-          });
-          setProgressMap(progress);
-        } catch (err) {
-          console.error('Error loading progress:', err);
-        }
-      }
     } catch (error) {
       console.error('Error loading novels:', error);
 
@@ -129,7 +121,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadNovels();
+    await Promise.all([loadNovels(), refreshProgress()]);
     setRefreshing(false);
   };
 
