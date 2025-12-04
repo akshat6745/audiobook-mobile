@@ -41,7 +41,9 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     audioPlayerState,
     content,
     isChapterLoading,
-    playbackSpeed
+    playbackSpeed,
+    currentChapter,
+    currentNovel
   } = useAudio();
 
   // Local state for UI only
@@ -109,8 +111,12 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [chapter.id, novel.title, loadChapter]);
 
   useEffect(() => {
-    saveProgress();
-  }, [chapter.id, novel.title]); // Only save when chapter changes
+    // Save progress whenever the current chapter in context changes
+    // This handles both initial load and auto-advance
+    if (currentChapter && currentNovel && user) {
+      saveProgress();
+    }
+  }, [currentChapter?.id, currentNovel?.title]); // Only save when chapter changes in context
 
   // Update voices in context
   useEffect(() => {

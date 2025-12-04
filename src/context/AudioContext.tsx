@@ -19,7 +19,7 @@ interface AudioContextType {
   audioPlayerState: AudioPlayerState;
   
   // Actions
-  loadChapter: (novel: Novel, chapter: Chapter) => Promise<void>;
+  loadChapter: (novel: Novel, chapter: Chapter, initialContent?: string[]) => Promise<void>;
   playParagraph: (index: number) => Promise<void>;
   togglePlayback: () => Promise<void>;
   playNextParagraph: () => Promise<void>;
@@ -70,12 +70,12 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
   const audioPlayerManager = useRef<AudioPlayerManager | null>(null);
   const isTransitioning = useRef(false);
   const loadingChapterId = useRef<string | null>(null);
-  const stateRef = useRef({ currentChapter, content });
+  const stateRef = useRef({ currentChapter, content, currentNovel });
 
   // Update stateRef whenever relevant state changes
   useEffect(() => {
-    stateRef.current = { currentChapter, content };
-  }, [currentChapter, content]);
+    stateRef.current = { currentChapter, content, currentNovel };
+  }, [currentChapter, content, currentNovel]);
 
   // Initialize Audio System
   useEffect(() => {
@@ -120,6 +120,28 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, [narratorVoice, dialogueVoice]);
 
+  const playParagraph = useCallback(async (index: number) => {
+    if (!audioPlayerManager.current || !content[index]) return;
+
+    // Optimistic update
+    isTransitioning.current = true;
+    setIsPlaying(true);
+    setCurrentParagraphIndex(index);
+    setAudioPlayerState(prev => ({ ...prev, isPlaying: true, currentIndex: index, isLoading: true }));
+
+    try {
+      const success = await audioPlayerManager.current.playParagraph(
+        index,
+        content[index],
+        content
+      );
+      if (!success) isTransitioning.current = false;
+    } catch (error) {
+      console.error('Error playing paragraph:', error);
+      isTransitioning.current = false;
+    }
+  }, [content]);
+
   const setupCallbacks = () => {
     if (!audioPlayerManager.current) return;
 
@@ -140,12 +162,16 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         // We need to access the current content ref or state here. 
         // Since content is in state, we can use it directly if we ensure this callback 
         // has access to the latest closure, or we use a ref for content.
-        // For simplicity in this context, we'll rely on the state being accessible 
-        // or pass content to playParagraph which we already do.
         
-        // However, inside this callback defined in useEffect/init, 'content' might be stale 
-        // if we don't update the callbacks when content changes.
-        // We'll handle this by updating callbacks whenever content changes.
+        // Check if we've reached the end of the chapter
+        if (toIndex >= stateRef.current.content.length) {
+          console.log('🏁 End of chapter reached, loading next chapter...');
+          await loadNextChapter();
+          return;
+        }
+        
+        // Otherwise, this initial callback might be stale for content, 
+        // but the useEffect below handles the active playback updates.
       },
       onError: (error) => {
         console.error('Global Audio Error:', error);
@@ -184,6 +210,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
               // Fallback
               playParagraph(toIndex);
             }
+          } else if (toIndex >= content.length) {
+            console.log('🏁 End of chapter reached (active), loading next chapter...');
+            await loadNextChapter();
           }
         },
         onError: (error) => {
@@ -193,21 +222,27 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, [content]);
 
-  const loadChapter = useCallback(async (novel: Novel, chapter: Chapter) => {
+  const loadChapter = useCallback(async (novel: Novel, chapter: Chapter, initialContent?: string[]) => {
     try {
       // Prevent duplicate loads for the same chapter
-      if (loadingChapterId.current === chapter.id) {
-        console.log('⚠️ Already loading chapter:', chapter.id);
+      const chapterUniqueId = `${novel.title}-${chapter.chapterNumber}`;
+      
+      if (loadingChapterId.current === chapterUniqueId) {
+        console.log('⚠️ Already loading chapter:', chapterUniqueId);
         return;
       }
 
       // Check against current state in ref to avoid dependency cycle
-      const { currentChapter: refCurrentChapter, content: refContent } = stateRef.current;
-      if (refCurrentChapter?.id === chapter.id && refContent.length > 0) {
+      // Added check for novel title to prevent stale content when switching novels
+      const { currentChapter: refCurrentChapter, content: refContent, currentNovel: refCurrentNovel } = stateRef.current;
+      if (refCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+          refCurrentNovel?.title === novel.title && 
+          refContent.length > 0) {
+        console.log('⚠️ Chapter already loaded:', chapterUniqueId);
         return;
       }
 
-      loadingChapterId.current = chapter.id || '';
+      loadingChapterId.current = chapterUniqueId;
       setIsChapterLoading(true);
 
       // Stop current playback
@@ -222,18 +257,27 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       setCurrentNovel(novel);
       setCurrentChapter(chapter);
 
-      // Fetch content
-      const chapterData = await chapterAPI.getChapterContent(
-        chapter.chapterNumber,
-        novel.title
-      );
+      let newContent: string[] = [];
 
-      const processedContent = chapterData.content
-        .map((text) => text.trim())
-        .filter((text) => text.length > 0);
+      if (initialContent && initialContent.length > 0) {
+        // Use provided content if available (avoids double fetch)
+        console.log('📦 Using provided initial content for chapter:', chapter.chapterNumber);
+        newContent = initialContent;
+      } else {
+        // Fetch content
+        console.log('📥 Fetching content for chapter:', chapter.chapterNumber);
+        const chapterData = await chapterAPI.getChapterContent(
+          chapter.chapterNumber,
+          novel.title
+        );
 
-      const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
-      const newContent = [titleContent, ...processedContent];
+        const processedContent = chapterData.content
+          .map((text) => text.trim())
+          .filter((text) => text.length > 0);
+
+        const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
+        newContent = [titleContent, ...processedContent];
+      }
       
       setContent(newContent);
 
@@ -253,27 +297,43 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, []); // No dependencies needed as we use refs
 
-  const playParagraph = useCallback(async (index: number) => {
-    if (!audioPlayerManager.current || !content[index]) return;
-
-    // Optimistic update
-    isTransitioning.current = true;
-    setIsPlaying(true);
-    setCurrentParagraphIndex(index);
-    setAudioPlayerState(prev => ({ ...prev, isPlaying: true, currentIndex: index, isLoading: true }));
+  const loadNextChapter = useCallback(async () => {
+    const { currentChapter, currentNovel } = stateRef.current;
+    if (!currentChapter || !currentNovel) return;
 
     try {
-      const success = await audioPlayerManager.current.playParagraph(
-        index,
-        content[index],
-        content
+      const nextChapterNumber = currentChapter.chapterNumber + 1;
+      console.log('Attempting to load next chapter:', nextChapterNumber);
+
+      // Fetch next chapter content to get the title
+      const chapterData = await chapterAPI.getChapterContent(
+        nextChapterNumber,
+        currentNovel.title
       );
-      if (!success) isTransitioning.current = false;
+
+      if (chapterData && chapterData.content) {
+        const nextChapter: Chapter = {
+          chapterNumber: nextChapterNumber,
+          chapterTitle: chapterData.chapterTitle || `Chapter ${nextChapterNumber}`,
+          id: `chapter_${nextChapterNumber}`
+        };
+
+        // Process content here to pass to loadChapter
+        const processedContent = (chapterData.content || [])
+          .map((text) => text.trim())
+          .filter((text) => text.length > 0);
+        
+        const titleContent = `Chapter ${nextChapter.chapterNumber}: ${nextChapter.chapterTitle}`;
+        const fullContent = [titleContent, ...processedContent];
+
+        await loadChapter(currentNovel, nextChapter, fullContent);
+      }
     } catch (error) {
-      console.error('Error playing paragraph:', error);
-      isTransitioning.current = false;
+      console.log('End of book or error loading next chapter:', error);
     }
-  }, [content]);
+  }, [loadChapter]);
+
+  
 
   const togglePlayback = useCallback(async () => {
     if (audioPlayerManager.current) {
