@@ -19,7 +19,7 @@ interface AudioContextType {
   audioPlayerState: AudioPlayerState;
   
   // Actions
-  loadChapter: (novel: Novel, chapter: Chapter, initialContent?: string[]) => Promise<void>;
+  loadChapter: (novel: Novel, chapter: Chapter, initialContent?: string[], autoPlay?: boolean) => Promise<void>;
   playParagraph: (index: number) => Promise<void>;
   togglePlayback: () => Promise<void>;
   playNextParagraph: () => Promise<void>;
@@ -120,8 +120,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, [narratorVoice, dialogueVoice]);
 
-  const playParagraph = useCallback(async (index: number) => {
-    if (!audioPlayerManager.current || !content[index]) return;
+  const playParagraph = useCallback(async (index: number, contentOverride?: string[]) => {
+    const contentToUse = contentOverride || content;
+    if (!audioPlayerManager.current || !contentToUse[index]) return;
 
     // Optimistic update
     isTransitioning.current = true;
@@ -132,8 +133,8 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     try {
       const success = await audioPlayerManager.current.playParagraph(
         index,
-        content[index],
-        content
+        contentToUse[index],
+        contentToUse
       );
       if (!success) isTransitioning.current = false;
     } catch (error) {
@@ -222,7 +223,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, [content]);
 
-  const loadChapter = useCallback(async (novel: Novel, chapter: Chapter, initialContent?: string[]) => {
+  const loadChapter = useCallback(async (novel: Novel, chapter: Chapter, initialContent?: string[], autoPlay: boolean = false) => {
     try {
       // Prevent duplicate loads for the same chapter
       const chapterUniqueId = `${novel.title}-${chapter.chapterNumber}`;
@@ -283,10 +284,17 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
 
       // Re-configure player if needed (cleanup might have cleared it)
       if (audioPlayerManager.current) {
-         audioPlayerManager.current.configureAutoAdvance({
+          audioPlayerManager.current.configureAutoAdvance({
           enabled: true,
           delayMs: 0,
         });
+      }
+
+      // Handle auto-play if requested
+      if (autoPlay && newContent.length > 0) {
+        console.log('▶️ Auto-playing new chapter...');
+        // Use contentOverride since state update might not be reflected yet
+        await playParagraph(0, newContent);
       }
 
     } catch (error) {
@@ -326,7 +334,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         const titleContent = `Chapter ${nextChapter.chapterNumber}: ${nextChapter.chapterTitle}`;
         const fullContent = [titleContent, ...processedContent];
 
-        await loadChapter(currentNovel, nextChapter, fullContent);
+        await loadChapter(currentNovel, nextChapter, fullContent, true);
       }
     } catch (error) {
       console.log('End of book or error loading next chapter:', error);
