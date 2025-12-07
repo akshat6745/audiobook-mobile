@@ -21,6 +21,7 @@ import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useProgress } from '../context/ProgressContext';
+import { offlineStorage } from '../services/OfflineStorageService';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
@@ -34,21 +35,25 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const { novel, chapter } = route.params;
   const {
     isPlaying,
-    currentParagraphIndex,
+    currentParagraphIndex: globalParagraphIndex, // Renamed to avoid confusion
     playParagraph,
     loadChapter,
     setPlaybackSpeed,
     setVoices,
     audioPlayerState,
-    content,
-    isChapterLoading,
+    // content, // Removed: using local content
+    // isChapterLoading, // Removed: using local loading state
     playbackSpeed,
-    currentChapter,
-    currentNovel
+    currentChapter: globalCurrentChapter, // Renamed
+    currentNovel: globalCurrentNovel // Renamed
   } = useAudio();
   const { updateProgress } = useProgress();
 
   // Local state for UI only
+
+  // Local state for content and loading
+  const [localContent, setLocalContent] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Local state for UI only
   const [fontSize, setFontSize] = useState(16);
@@ -87,10 +92,15 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   // Auto-scroll when active paragraph changes
   useEffect(() => {
-    if (currentParagraphIndex !== null) {
-      scrollToActiveParagraph(currentParagraphIndex);
+    // Only auto-scroll if the current playing chapter matches this screen's chapter
+    const isCurrentChapterPlaying = 
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+      globalCurrentNovel?.title === novel.title;
+
+    if (isCurrentChapterPlaying && globalParagraphIndex !== null) {
+      scrollToActiveParagraph(globalParagraphIndex);
     }
-  }, [currentParagraphIndex, scrollToActiveParagraph]);
+  }, [globalParagraphIndex, scrollToActiveParagraph, globalCurrentChapter, globalCurrentNovel, chapter.chapterNumber, novel.title]);
 
   // Audio system handled by AudioCacheManager and AudioPlayerManager
 
@@ -108,17 +118,69 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const narratorVoices = VOICE_OPTIONS;
   const dialogueVoices = VOICE_OPTIONS;
 
+  // Independent Content Fetching Logic
   useEffect(() => {
-    loadChapter(novel, chapter);
-  }, [chapter.id, novel.title, loadChapter]);
+    const fetchContent = async () => {
+      setIsLoading(true);
+      try {
+        let newContent: string[] = [];
+        let isOffline = false;
 
+        // Check offline storage first
+        try {
+          const offlineChapter = await offlineStorage.getChapter(novel.title, chapter.chapterNumber);
+          if (offlineChapter) {
+            console.log(`📱 [ReaderScreen] Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
+            isOffline = true;
+            
+            const processedContent = (offlineChapter.paragraphs || [])
+              .map(p => p?.text?.trim() || '')
+              .filter(text => text.length > 0);
+            
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
+            newContent = [titleContent, ...processedContent];
+          }
+        } catch (error) {
+          console.warn('[ReaderScreen] Failed to check offline storage:', error);
+        }
+
+        if (!isOffline) {
+          // Fetch content from API
+          console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
+          const chapterData = await chapterAPI.getChapterContent(
+            chapter.chapterNumber,
+            novel.title
+          );
+
+          if (chapterData && chapterData.content) {
+             const processedContent = chapterData.content
+            .map((text) => text.trim())
+            .filter((text) => text.length > 0);
+
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
+            newContent = [titleContent, ...processedContent];
+          }
+        }
+
+        setLocalContent(newContent);
+        
+      } catch (error) {
+        console.error('[ReaderScreen] Error loading chapter content:', error);
+        Alert.alert('Error', 'Failed to load chapter content. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchContent();
+  }, [chapter.chapterNumber, novel.title]); // Dependency on IDs, not objects
+
+  // Save progress (Optimized to only trigger when actually viewing)
   useEffect(() => {
-    // Save progress whenever the current chapter in context changes
-    // This handles both initial load and auto-advance
-    if (currentChapter && currentNovel && user) {
-      updateProgress(currentNovel.title, currentChapter.chapterNumber);
+    if (user && !isLoading) {
+       updateProgress(novel.title, chapter.chapterNumber);
     }
-  }, [currentChapter?.id, currentNovel?.title]); // Only save when chapter changes in context
+  }, [novel.title, chapter.chapterNumber, user, isLoading]);
 
   // Update voices in context
   useEffect(() => {
@@ -126,8 +188,26 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [narratorVoice, dialogueVoice, setVoices]);
 
   // Handle paragraph press - Moved up to avoid use-before-declaration in useEffect
+  // Handle paragraph press - Logic to switch context if needed
   const handleParagraphPress = async (index: number) => {
     console.log('🎯 handleParagraphPress called for index:', index);
+
+    const isCurrentChapterPlaying = 
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+      globalCurrentNovel?.title === novel.title;
+
+    if (!isCurrentChapterPlaying) {
+      console.log('🔄 Switching AudioContext to current chapter...');
+      // Load this chapter into global context using our locally fetched content
+      // autoPlay is NOT set to true here because playParagraph below handles it, 
+      // but loadChapter with initialContent prepares the audio player.
+      // Actually, playParagraph requires the context to be loaded. 
+      // Let's await loadChapter then play.
+      
+      await loadChapter(novel, chapter, localContent, false); 
+      // Short delay to ensure state updates? UseEffect in Context handles content updates.
+    }
+
     await playParagraph(index);
   };
 
@@ -167,8 +247,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setShowNarratorModal(false);
 
     // Replay current paragraph with new voice
-    if (currentParagraphIndex !== null) {
-      await playParagraph(currentParagraphIndex);
+    if (globalParagraphIndex !== null) {
+      await playParagraph(globalParagraphIndex);
     }
   };
 
@@ -177,13 +257,17 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setShowDialogueModal(false);
 
     // Replay current paragraph with new voice
-    if (currentParagraphIndex !== null) {
-      await playParagraph(currentParagraphIndex);
+    if (globalParagraphIndex !== null) {
+      await playParagraph(globalParagraphIndex);
     }
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
-    const isActive = currentParagraphIndex === index;
+    const isCurrentChapterPlaying = 
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+      globalCurrentNovel?.title === novel.title;
+      
+    const isActive = isCurrentChapterPlaying && globalParagraphIndex === index;
     // Removed isLoading check for UI simplification
 
 
@@ -496,7 +580,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     </Modal>
   );
 
-  if (isChapterLoading) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2196F3" />
@@ -527,7 +611,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.chapterHeader}>
           {/* Title is now part of the content list */}
         </View>
-        {content.map((paragraph, index) => renderParagraph(paragraph, index))}
+        {localContent.map((paragraph, index) => renderParagraph(paragraph, index))}
       </ScrollView>
 
       {renderSettingsPanel()}
