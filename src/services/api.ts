@@ -74,6 +74,26 @@ export const chapterAPI = {
     );
     return response.data;
   },
+
+  getDownloadChapterUrl: (
+    novelName: string,
+    chapterNumber: number,
+    voice: string,
+    dialogueVoice: string,
+    progressId?: string
+  ): string => {
+    const encodedName = encodeURIComponent(novelName);
+    let url = `${API_BASE_URL}/download-chapter/${encodedName}/${chapterNumber}?voice=${encodeURIComponent(voice)}&dialogue_voice=${encodeURIComponent(dialogueVoice)}`;
+    if (progressId) {
+      url += `&progress_id=${encodeURIComponent(progressId)}`;
+    }
+    return url;
+  },
+
+  getDownloadProgress: async (progressId: string): Promise<{ status: string; percent: number; total: number; current: number }> => {
+    const response = await api.get(`/download/progress/${encodeURIComponent(progressId)}`);
+    return response.data;
+  },
 };
 
 // Text-to-Speech API

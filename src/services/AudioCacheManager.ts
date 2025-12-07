@@ -1,6 +1,7 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import api from './api';
+import { offlineStorage } from './OfflineStorageService';
 
 // Enhanced data structure for paragraph audio caching
 export interface ParagraphAudioData {
@@ -12,6 +13,7 @@ export interface ParagraphAudioData {
   is_loading: boolean;
   created_at: number;
   character_count: number;
+  isOffline?: boolean; // Flag to identify permanent offline files
 }
 
 export interface AudioCacheConfig {
@@ -29,6 +31,10 @@ export class AudioCacheManager {
   private dialogueVoice: string;
   private config: AudioCacheConfig;
   private currentPlaybackSpeed: number = 1.0; // Track current playback speed
+  
+  // Context for self-healing offline storage
+  private currentNovelName: string | null = null;
+  private currentChapterNumber: number | null = null;
 
   constructor(
     narratorVoice: string,
@@ -43,6 +49,11 @@ export class AudioCacheManager {
     this.narratorVoice = narratorVoice;
     this.dialogueVoice = dialogueVoice;
     this.config = config;
+  }
+  
+  setContext(novelName: string, chapterNumber: number) {
+    this.currentNovelName = novelName;
+    this.currentChapterNumber = chapterNumber;
   }
 
   /**
@@ -247,6 +258,28 @@ export class AudioCacheManager {
       const audioBlob = await response.blob();
       const fileUri = await this.saveAudioToFile(paragraphIndex, audioBlob);
 
+      // --- SELF HEALING: Save to offline storage if context is available ---
+      if (this.currentNovelName && this.currentChapterNumber !== null) {
+          // Fire and forget - don't block playback for this
+          offlineStorage.saveParagraphAudio(
+            this.currentNovelName,
+            this.currentChapterNumber,
+            paragraphIndex,
+            fileUri
+          ).then((savedPath) => {
+            if (savedPath) {
+               // Update cache to point to permanent location?
+               // Maybe not strictly necessary for this session, but good for cleanliness.
+               // However, we already set audio_uri to fileUri (temp).
+               // If we update it here, we might need to be careful about async race conditions.
+               // For now, let's just save it. Next load will pick it up from offline storage.
+               // Actually, if we update it, we can mark it as isOffline = true?
+               // Let's keep it simple: just save it. The NEXT time chapter loads, it will be offline.
+            }
+          });
+      }
+      // -------------------------------------------------------------------
+
       // Update cache entry with explicit values
       audioData.audio_received = true;
       audioData.audio_uri = fileUri;
@@ -288,6 +321,38 @@ export class AudioCacheManager {
       });
       throw error;
     }
+  }
+
+  /**
+   * Seed cache with existing audio URI (e.g. from offline storage)
+   */
+  async seedCache(paragraphIndex: number, paragraphText: string, audioUri: string): Promise<void> {
+    console.log(`🌱 Seeding cache for paragraph ${paragraphIndex} with URI: ${audioUri}`);
+    
+    const audioData: ParagraphAudioData = {
+      paragraph_index: paragraphIndex,
+      paragraph_text: paragraphText,
+      audio_received: true,
+      audio_uri: audioUri,
+      is_loading: false,
+      created_at: Date.now(),
+      character_count: paragraphText.length,
+      isOffline: true, // Mark as offline/permanent
+    };
+
+    // Get duration if possible
+    try {
+      const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded) {
+        audioData.audio_duration = status.durationMillis || 0;
+      }
+      await sound.unloadAsync();
+    } catch (error) {
+      console.warn(`Could not get duration for seeded paragraph ${paragraphIndex}:`, error);
+    }
+
+    this.cache.set(paragraphIndex, audioData);
   }
 
   /**
@@ -391,6 +456,9 @@ export class AudioCacheManager {
     const filesToDelete: string[] = [];
 
     this.cache.forEach((data, index) => {
+      // NEVER delete offline entries from cache map
+      if (data.isOffline) return;
+
       if (index < keepStart || index > keepEnd) {
         toDelete.push(index);
         if (data.audio_uri) {
@@ -500,8 +568,23 @@ export class AudioCacheManager {
   clearCache(): void {
     const filesToDelete: string[] = [];
     this.cache.forEach(data => {
+      // Don't delete offline files even on clearCache if possible? 
+      // Actually clearCache is usually when voices change, so we might want to reload. 
+      // But offline files are static. 
+      // For now, let's play it safe and NOT delete isOffline files even here.
+      if (data.isOffline) return;
+
       if (data.audio_uri) filesToDelete.push(data.audio_uri);
     });
+
+    // We can clear the map, but offline entries might need to be preserved if we want to change voices but keep offline?
+    // Actually offline audio is pre-rendered with specific voices. If user changes voice, offline audio shouldn't be used?
+    // But offline audio IS the source of truth for that chapter.
+    // Ideally we should keep offline entries.
+    // For now, I will just filter filesToDelete.
+    // The map will be cleared, so next time it will reload ... from where?
+    // If we clear map, we lose the 'isOffline' knowledge.
+    // But updateVoices happens rarely.
 
     this.cache.clear();
     this.activeRequests.clear();

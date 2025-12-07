@@ -18,7 +18,9 @@ import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, UserProgress } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useProgress } from '../context/ProgressContext';
+import { useAudio } from '../context/AudioContext';
 import Theme from '../styles/theme';
+import DownloadButton from '../components/DownloadButton';
 
 type ChapterListScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChapterList'>;
 type ChapterListScreenRouteProp = RouteProp<RootStackParamList, 'ChapterList'>;
@@ -36,6 +38,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   const { progressMap } = useProgress();
   const lastReadChapter = progressMap[novel.title] || null;
   const { user } = useAuth();
+  const { narratorVoice, dialogueVoice } = useAudio();
 
   useEffect(() => {
     loadChapters();
@@ -78,6 +81,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('Reader', { novel, chapter });
   }, [navigation, novel]);
 
+
   const renderChapterCard = (item: Chapter, isLastRead: boolean) => (
     <View style={styles.chapterCard}>
       <TouchableOpacity
@@ -100,6 +104,12 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
       </TouchableOpacity>
 
       <View style={styles.chapterActions}>
+        <DownloadButton
+          novelName={novel.title}
+          chapterNumber={item.chapterNumber}
+          voice={narratorVoice}
+          dialogueVoice={dialogueVoice}
+        />
         <TouchableOpacity
           style={[styles.actionButton, styles.readButton]}
           onPress={() => handleChapterPress(item)}

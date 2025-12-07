@@ -11,6 +11,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import NovelListScreen from '../screens/NovelListScreen';
 import ChapterListScreen from '../screens/ChapterListScreen';
 import ReaderScreen from '../screens/ReaderScreen';
+import DownloadsScreen from '../screens/DownloadsScreen';
 
 import ProfileScreen from '../screens/ProfileScreen';
 
@@ -33,6 +34,8 @@ const MainTabNavigator = () => {
             iconName = 'library-books';
           } else if (route.name === 'Profile') {
             iconName = 'person';
+          } else if (route.name === 'Downloads') {
+            iconName = 'offline-pin';
           } else {
             iconName = 'book';
           }
@@ -53,6 +56,11 @@ const MainTabNavigator = () => {
         name="Profile"
         component={ProfileScreen}
         options={{ title: 'Profile' }}
+      />
+      <Tab.Screen
+        name="Downloads"
+        component={DownloadsScreen}
+        options={{ title: 'Downloads' }}
       />
     </Tab.Navigator>
   );

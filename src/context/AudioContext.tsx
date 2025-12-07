@@ -3,6 +3,7 @@ import { AudioPlayerManager, AudioPlayerState } from '../services/AudioPlayerMan
 import { AudioCacheManager } from '../services/AudioCacheManager';
 import { Chapter, Novel } from '../types';
 import { chapterAPI } from '../services/api';
+import { offlineStorage } from '../services/OfflineStorageService';
 
 interface AudioContextType {
   // State
@@ -250,6 +251,12 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       if (audioPlayerManager.current) {
         await audioPlayerManager.current.cleanup();
       }
+
+      // Clear audio cache to prevent state leakage and optimize disk usage
+      // This removes temp files from previous chapters while preserving offline downloads
+      if (audioCacheManager.current) {
+        audioCacheManager.current.clearCache();
+      }
       
       // Reset state
       setIsPlaying(false);
@@ -258,26 +265,86 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       setCurrentNovel(novel);
       setCurrentChapter(chapter);
 
+      // Set context for audio cache manager to enable self-healing offline storage
+      if (audioCacheManager.current) {
+        audioCacheManager.current.setContext(novel.title, chapter.chapterNumber);
+      }
+
       let newContent: string[] = [];
+      let isOffline = false;
 
       if (initialContent && initialContent.length > 0) {
         // Use provided content if available (avoids double fetch)
         console.log('📦 Using provided initial content for chapter:', chapter.chapterNumber);
         newContent = initialContent;
       } else {
-        // Fetch content
-        console.log('📥 Fetching content for chapter:', chapter.chapterNumber);
-        const chapterData = await chapterAPI.getChapterContent(
-          chapter.chapterNumber,
-          novel.title
-        );
+        // Check offline storage first
+        try {
+          const offlineChapter = await offlineStorage.getChapter(novel.title, chapter.chapterNumber);
+          if (offlineChapter) {
+            console.log(`📱 Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
+            isOffline = true;
+            
+            // Seed the audio cache with offline files
+            if (audioCacheManager.current && offlineChapter.audioFiles) {
+              console.log('💾 Seeding audio cache from offline storage');
+              
+              const audioFiles = offlineChapter.audioFiles;
+              
+              // Seed Title (Index 0)
+              if (audioFiles['title']) {
+                 const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
+                 const titleText = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
+                 audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
+              }
 
-        const processedContent = chapterData.content
-          .map((text) => text.trim())
-          .filter((text) => text.length > 0);
+              // Seed Paragraphs (Index + 1)
+              Object.entries(audioFiles).forEach(([key, filename]) => {
+                if (key === 'title') return;
+                
+                const paragraphIndex = parseInt(key);
+                if (!isNaN(paragraphIndex) && offlineChapter.paragraphs[paragraphIndex]) {
+                   // Frontend content has title at 0, so paragraphs start at 1
+                   const cacheIndex = paragraphIndex + 1;
+                   const paragraph = offlineChapter.paragraphs[paragraphIndex];
+                   const audioUri = offlineChapter.localAudioPath + filename;
+                   
+                   // Handle both normalized (object) and legacy (string) paragraph formats safely, though StorageService normalizes it now.
+                   const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
+                   
+                   if (text) {
+                     audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
+                   }
+                }
+              });
+            }
 
-        const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
-        newContent = [titleContent, ...processedContent];
+            const processedContent = (offlineChapter.paragraphs || [])
+              .map(p => p?.text?.trim() || '')
+              .filter(text => text.length > 0);
+            
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
+            newContent = [titleContent, ...processedContent];
+          }
+        } catch (error) {
+          console.warn('Failed to check offline storage:', error);
+        }
+
+        if (!isOffline) {
+          // Fetch content from API
+          console.log('📥 Fetching content for chapter:', chapter.chapterNumber);
+          const chapterData = await chapterAPI.getChapterContent(
+            chapter.chapterNumber,
+            novel.title
+          );
+
+          const processedContent = chapterData.content
+            .map((text) => text.trim())
+            .filter((text) => text.length > 0);
+
+          const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
+          newContent = [titleContent, ...processedContent];
+        }
       }
       
       setContent(newContent);
@@ -314,6 +381,66 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       console.log('Attempting to load next chapter:', nextChapterNumber);
 
       // Fetch next chapter content to get the title
+      // Check offline storage first
+      try {
+        // Assuming `offlineStorage` and `audioCacheManager` are available in this scope
+        // and `offlineStorage.getChapter` returns a structure similar to `chapterAPI.getChapterContent`
+        const offlineChapter = await offlineStorage.getChapter(currentNovel.title, nextChapterNumber);
+        if (offlineChapter) {
+          console.log(`📱 Found offline content for ${currentNovel.title} - Chapter ${nextChapterNumber}`);
+          
+          // Seed the audio cache with offline files
+          if (audioCacheManager.current && offlineChapter.audioFiles) {
+            console.log('💾 Seeding audio cache from offline storage');
+            
+            const audioFiles = offlineChapter.audioFiles;
+
+            // Seed Title (Index 0)
+            if (audioFiles['title']) {
+                const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
+                const titleText = `Chapter ${nextChapterNumber}: ${offlineChapter.chapterTitle}`;
+                audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
+            }
+
+            Object.entries(audioFiles).forEach(([key, filename]) => {
+              if (key === 'title') return;
+
+              const paragraphIndex = parseInt(key);
+              if (!isNaN(paragraphIndex) && offlineChapter.paragraphs[paragraphIndex]) {
+                  const cacheIndex = paragraphIndex + 1;
+                  const paragraph = offlineChapter.paragraphs[paragraphIndex];
+                  const audioUri = offlineChapter.localAudioPath + filename;
+                  
+                  const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
+                  
+                  if (text) {
+                     audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
+                  }
+              }
+            });
+          }
+
+          // Construct chapterData from offline content
+          const nextChapter: Chapter = {
+            chapterNumber: nextChapterNumber,
+            chapterTitle: offlineChapter.chapterTitle || `Chapter ${nextChapterNumber}`,
+            id: `chapter_${nextChapterNumber}`
+          };
+
+            const processedContent = (offlineChapter.paragraphs || [])
+              .map(p => p?.text?.trim() || '')
+              .filter(text => text.length > 0);
+          
+          const titleContent = `Chapter ${nextChapter.chapterNumber}: ${nextChapter.chapterTitle}`;
+          const fullContent = [titleContent, ...processedContent];
+
+          await loadChapter(currentNovel, nextChapter, fullContent, true);
+          return; // Exit after loading from offline storage
+        }
+      } catch (error) {
+        console.warn('Failed to check offline storage for next chapter:', error);
+      }
+
       const chapterData = await chapterAPI.getChapterContent(
         nextChapterNumber,
         currentNovel.title

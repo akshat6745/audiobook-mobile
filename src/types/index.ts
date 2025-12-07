@@ -21,6 +21,11 @@ export interface ChapterContent {
   timestamp?: string;
 }
 
+export interface Paragraph {
+  text: string;
+  index: number;
+}
+
 export interface ChapterListResponse {
   chapters: Chapter[];
   total_pages: number;
