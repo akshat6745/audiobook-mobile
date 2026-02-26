@@ -93,8 +93,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   // Auto-scroll when active paragraph changes
   useEffect(() => {
     // Only auto-scroll if the current playing chapter matches this screen's chapter
-    const isCurrentChapterPlaying = 
-      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+    const isCurrentChapterPlaying =
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
       globalCurrentNovel?.title === novel.title;
 
     if (isCurrentChapterPlaying && globalParagraphIndex !== null) {
@@ -132,11 +132,11 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           if (offlineChapter) {
             console.log(`📱 [ReaderScreen] Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
             isOffline = true;
-            
+
             const processedContent = (offlineChapter.paragraphs || [])
               .map(p => p?.text?.trim() || '')
               .filter(text => text.length > 0);
-            
+
             const titleContent = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
             newContent = [titleContent, ...processedContent];
           }
@@ -149,13 +149,13 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
           console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
           const chapterData = await chapterAPI.getChapterContent(
             chapter.chapterNumber,
-            novel.title
+            novel.slug
           );
 
           if (chapterData && chapterData.content) {
-             const processedContent = chapterData.content
-            .map((text) => text.trim())
-            .filter((text) => text.length > 0);
+            const processedContent = chapterData.content
+              .map((text) => text.trim())
+              .filter((text) => text.length > 0);
 
             const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
             newContent = [titleContent, ...processedContent];
@@ -163,7 +163,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         }
 
         setLocalContent(newContent);
-        
+
       } catch (error) {
         console.error('[ReaderScreen] Error loading chapter content:', error);
         Alert.alert('Error', 'Failed to load chapter content. Please try again.');
@@ -178,7 +178,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   // Save progress (Optimized to only trigger when actually viewing)
   useEffect(() => {
     if (user && !isLoading) {
-       updateProgress(novel.title, chapter.chapterNumber);
+      updateProgress(novel.slug, chapter.chapterNumber);
     }
   }, [novel.title, chapter.chapterNumber, user, isLoading]);
 
@@ -192,8 +192,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleParagraphPress = async (index: number) => {
     console.log('🎯 handleParagraphPress called for index:', index);
 
-    const isCurrentChapterPlaying = 
-      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+    const isCurrentChapterPlaying =
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
       globalCurrentNovel?.title === novel.title;
 
     if (!isCurrentChapterPlaying) {
@@ -203,8 +203,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       // but loadChapter with initialContent prepares the audio player.
       // Actually, playParagraph requires the context to be loaded. 
       // Let's await loadChapter then play.
-      
-      await loadChapter(novel, chapter, localContent, false); 
+
+      await loadChapter(novel, chapter, localContent, false);
       // Short delay to ensure state updates? UseEffect in Context handles content updates.
     }
 
@@ -263,10 +263,10 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderParagraph = (paragraph: string, index: number) => {
-    const isCurrentChapterPlaying = 
-      globalCurrentChapter?.chapterNumber === chapter.chapterNumber && 
+    const isCurrentChapterPlaying =
+      globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
       globalCurrentNovel?.title === novel.title;
-      
+
     const isActive = isCurrentChapterPlaying && globalParagraphIndex === index;
     // Removed isLoading check for UI simplification
 
@@ -529,7 +529,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         <TouchableOpacity
           style={[styles.settingsPanel, { backgroundColor: backgroundColor }]}
           activeOpacity={1}
-          onPress={() => {}} // Prevent modal close when tapping inside
+          onPress={() => { }} // Prevent modal close when tapping inside
         >
           {/* Close Button */}
           <TouchableOpacity

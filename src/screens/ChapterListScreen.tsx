@@ -34,21 +34,39 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   const { novel } = route.params;
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
   const { progressMap } = useProgress();
-  const lastReadChapter = progressMap[novel.title] || null;
+  // Try novel slug first (new standard), then fallback to novel title (old format)
+  const lastReadChapter = progressMap[novel.slug] || progressMap[novel.title] || null;
   const { user } = useAuth();
   const { narratorVoice, dialogueVoice } = useAudio();
 
   useEffect(() => {
-    loadChapters();
+    loadChapters(1);
   }, []);
 
-  const loadChapters = async () => {
+  const loadChapters = async (pageNum = 1, isRefresh = false) => {
     try {
-      setIsLoading(true);
-      const chapterData = await chapterAPI.getChaptersList(novel.title, 1);
-      setChapters(chapterData.chapters);
+      if (pageNum === 1 && !isRefresh) {
+        setIsLoading(true);
+      } else if (pageNum > 1) {
+        setIsLoadingMore(true);
+      }
+
+      const chapterData = await chapterAPI.getChaptersList(novel.slug, pageNum);
+
+      if (pageNum === 1) {
+        setChapters(chapterData.chapters);
+      } else {
+        setChapters(prev => [...prev, ...chapterData.chapters]);
+      }
+
+      setTotalPages(chapterData.total_pages || 1);
+      setPage(pageNum);
     } catch (error) {
       console.error('Error loading chapters:', error);
 
@@ -56,16 +74,25 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
       const demoChapters: Chapter[] = Array.from({ length: novel.chapterCount || 10 }, (_, i) => ({
         chapterNumber: i + 1,
         chapterTitle: `Chapter ${i + 1}: Demo Chapter Title`,
-        id: `demo-chapter-${i + 1}`
+        id: `demo-chapter-${i + 1}`,
+        slug: 'demo-chapter-${i + 1}',
+        author: 'demo-author',
+        chapterCount: 10,
+        description: 'demo-description',
+        source: 'demo-source',
       }));
 
-      setChapters(demoChapters);
-      Alert.alert(
-        'Demo Mode',
-        'Loading demo chapters. Connect to AudioBookPython backend for real chapter data.'
-      );
+      if (pageNum === 1) {
+        setChapters(demoChapters);
+        setTotalPages(1);
+        Alert.alert(
+          'Demo Mode',
+          'Loading demo chapters. Connect to AudioBookPython backend for real chapter data.'
+        );
+      }
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
@@ -73,8 +100,14 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadChapters();
+    await loadChapters(1, true);
     setRefreshing(false);
+  };
+
+  const loadMoreChapters = () => {
+    if (!isLoadingMore && !isLoading && page < totalPages) {
+      loadChapters(page + 1);
+    }
   };
 
   const handleChapterPress = useCallback((chapter: Chapter) => {
@@ -126,7 +159,17 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderHeader = () => {
-    const lastReadChapterItem = chapters.find(c => c.chapterNumber === lastReadChapter);
+    let lastReadChapterItem = chapters.find(c => c.chapterNumber === lastReadChapter);
+
+    // Create a dummy chapter object so we can navigate to the progress even
+    // if the chapter data isn't loaded on the current page
+    if (!lastReadChapterItem && lastReadChapter) {
+      lastReadChapterItem = {
+        chapterNumber: lastReadChapter,
+        chapterTitle: `Chapter ${lastReadChapter}`,
+        id: `continue-${lastReadChapter}`,
+      } as Chapter;
+    }
 
     return (
       <View>
@@ -204,6 +247,15 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
         ListEmptyComponent={renderEmptyState}
         ListHeaderComponent={renderHeader}
         showsVerticalScrollIndicator={false}
+        onEndReached={loadMoreChapters}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={{ padding: Theme.spacing.md }}>
+              <ActivityIndicator color={Theme.colors.primary[500]} />
+            </View>
+          ) : null
+        }
       />
     </View>
   );

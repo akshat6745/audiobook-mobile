@@ -1,10 +1,12 @@
 // API Types based on AudioBookPython API
 export interface Novel {
-  id: string | null;
+  id: string;
   title: string;
   author: string | null;
   chapterCount: number | null;
   source: 'google_doc' | 'epub_upload';
+  slug: string;
+  description: string;
 }
 
 export interface Chapter {

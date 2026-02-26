@@ -18,7 +18,7 @@ interface AudioContextType {
   narratorVoice: string;
   dialogueVoice: string;
   audioPlayerState: AudioPlayerState;
-  
+
   // Actions
   loadChapter: (novel: Novel, chapter: Chapter, initialContent?: string[], autoPlay?: boolean) => Promise<void>;
   playParagraph: (index: number) => Promise<void>;
@@ -82,7 +82,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
   useEffect(() => {
     const init = async () => {
       console.log('🎵 Initializing Global Audio System');
-      
+
       audioCacheManager.current = new AudioCacheManager(
         narratorVoice,
         dialogueVoice,
@@ -164,14 +164,14 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         // We need to access the current content ref or state here. 
         // Since content is in state, we can use it directly if we ensure this callback 
         // has access to the latest closure, or we use a ref for content.
-        
+
         // Check if we've reached the end of the chapter
         if (toIndex >= stateRef.current.content.length) {
           console.log('🏁 End of chapter reached, loading next chapter...');
           await loadNextChapter();
           return;
         }
-        
+
         // Otherwise, this initial callback might be stale for content, 
         // but the useEffect below handles the active playback updates.
       },
@@ -228,7 +228,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     try {
       // Prevent duplicate loads for the same chapter
       const chapterUniqueId = `${novel.title}-${chapter.chapterNumber}`;
-      
+
       if (loadingChapterId.current === chapterUniqueId) {
         console.log('⚠️ Already loading chapter:', chapterUniqueId);
         return;
@@ -237,9 +237,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       // Check against current state in ref to avoid dependency cycle
       // Added check for novel title to prevent stale content when switching novels
       const { currentChapter: refCurrentChapter, content: refContent, currentNovel: refCurrentNovel } = stateRef.current;
-      if (refCurrentChapter?.chapterNumber === chapter.chapterNumber && 
-          refCurrentNovel?.title === novel.title && 
-          refContent.length > 0) {
+      if (refCurrentChapter?.chapterNumber === chapter.chapterNumber &&
+        refCurrentNovel?.title === novel.title &&
+        refContent.length > 0) {
         console.log('⚠️ Chapter already loaded:', chapterUniqueId);
         return;
       }
@@ -257,7 +257,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       if (audioCacheManager.current) {
         audioCacheManager.current.clearCache();
       }
-      
+
       // Reset state
       setIsPlaying(false);
       setCurrentParagraphIndex(null);
@@ -284,37 +284,37 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
           if (offlineChapter) {
             console.log(`📱 Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
             isOffline = true;
-            
+
             // Seed the audio cache with offline files
             if (audioCacheManager.current && offlineChapter.audioFiles) {
               console.log('💾 Seeding audio cache from offline storage');
-              
+
               const audioFiles = offlineChapter.audioFiles;
-              
+
               // Seed Title (Index 0)
               if (audioFiles['title']) {
-                 const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
-                 const titleText = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
-                 audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
+                const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
+                const titleText = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
+                audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
               }
 
               // Seed Paragraphs (Index + 1)
               Object.entries(audioFiles).forEach(([key, filename]) => {
                 if (key === 'title') return;
-                
+
                 const paragraphIndex = parseInt(key);
                 if (!isNaN(paragraphIndex) && offlineChapter.paragraphs[paragraphIndex]) {
-                   // Frontend content has title at 0, so paragraphs start at 1
-                   const cacheIndex = paragraphIndex + 1;
-                   const paragraph = offlineChapter.paragraphs[paragraphIndex];
-                   const audioUri = offlineChapter.localAudioPath + filename;
-                   
-                   // Handle both normalized (object) and legacy (string) paragraph formats safely, though StorageService normalizes it now.
-                   const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
-                   
-                   if (text) {
-                     audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
-                   }
+                  // Frontend content has title at 0, so paragraphs start at 1
+                  const cacheIndex = paragraphIndex + 1;
+                  const paragraph = offlineChapter.paragraphs[paragraphIndex];
+                  const audioUri = offlineChapter.localAudioPath + filename;
+
+                  // Handle both normalized (object) and legacy (string) paragraph formats safely, though StorageService normalizes it now.
+                  const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
+
+                  if (text) {
+                    audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
+                  }
                 }
               });
             }
@@ -322,7 +322,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
             const processedContent = (offlineChapter.paragraphs || [])
               .map(p => p?.text?.trim() || '')
               .filter(text => text.length > 0);
-            
+
             const titleContent = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
             newContent = [titleContent, ...processedContent];
           }
@@ -335,7 +335,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
           console.log('📥 Fetching content for chapter:', chapter.chapterNumber);
           const chapterData = await chapterAPI.getChapterContent(
             chapter.chapterNumber,
-            novel.title
+            novel.slug
           );
 
           const processedContent = chapterData.content
@@ -346,12 +346,12 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
           newContent = [titleContent, ...processedContent];
         }
       }
-      
+
       setContent(newContent);
 
       // Re-configure player if needed (cleanup might have cleared it)
       if (audioPlayerManager.current) {
-          audioPlayerManager.current.configureAutoAdvance({
+        audioPlayerManager.current.configureAutoAdvance({
           enabled: true,
           delayMs: 0,
         });
@@ -388,18 +388,18 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         const offlineChapter = await offlineStorage.getChapter(currentNovel.title, nextChapterNumber);
         if (offlineChapter) {
           console.log(`📱 Found offline content for ${currentNovel.title} - Chapter ${nextChapterNumber}`);
-          
+
           // Seed the audio cache with offline files
           if (audioCacheManager.current && offlineChapter.audioFiles) {
             console.log('💾 Seeding audio cache from offline storage');
-            
+
             const audioFiles = offlineChapter.audioFiles;
 
             // Seed Title (Index 0)
             if (audioFiles['title']) {
-                const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
-                const titleText = `Chapter ${nextChapterNumber}: ${offlineChapter.chapterTitle}`;
-                audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
+              const titleAudioUri = offlineChapter.localAudioPath + audioFiles['title'];
+              const titleText = `Chapter ${nextChapterNumber}: ${offlineChapter.chapterTitle}`;
+              audioCacheManager.current?.seedCache(0, titleText, titleAudioUri);
             }
 
             Object.entries(audioFiles).forEach(([key, filename]) => {
@@ -407,15 +407,15 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
 
               const paragraphIndex = parseInt(key);
               if (!isNaN(paragraphIndex) && offlineChapter.paragraphs[paragraphIndex]) {
-                  const cacheIndex = paragraphIndex + 1;
-                  const paragraph = offlineChapter.paragraphs[paragraphIndex];
-                  const audioUri = offlineChapter.localAudioPath + filename;
-                  
-                  const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
-                  
-                  if (text) {
-                     audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
-                  }
+                const cacheIndex = paragraphIndex + 1;
+                const paragraph = offlineChapter.paragraphs[paragraphIndex];
+                const audioUri = offlineChapter.localAudioPath + filename;
+
+                const text = typeof paragraph === 'string' ? paragraph : paragraph.text;
+
+                if (text) {
+                  audioCacheManager.current?.seedCache(cacheIndex, text, audioUri);
+                }
               }
             });
           }
@@ -427,10 +427,10 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
             id: `chapter_${nextChapterNumber}`
           };
 
-            const processedContent = (offlineChapter.paragraphs || [])
-              .map(p => p?.text?.trim() || '')
-              .filter(text => text.length > 0);
-          
+          const processedContent = (offlineChapter.paragraphs || [])
+            .map(p => p?.text?.trim() || '')
+            .filter(text => text.length > 0);
+
           const titleContent = `Chapter ${nextChapter.chapterNumber}: ${nextChapter.chapterTitle}`;
           const fullContent = [titleContent, ...processedContent];
 
@@ -443,7 +443,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
 
       const chapterData = await chapterAPI.getChapterContent(
         nextChapterNumber,
-        currentNovel.title
+        currentNovel.slug
       );
 
       if (chapterData && chapterData.content) {
@@ -457,7 +457,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         const processedContent = (chapterData.content || [])
           .map((text) => text.trim())
           .filter((text) => text.length > 0);
-        
+
         const titleContent = `Chapter ${nextChapter.chapterNumber}: ${nextChapter.chapterTitle}`;
         const fullContent = [titleContent, ...processedContent];
 
@@ -468,7 +468,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
   }, [loadChapter]);
 
-  
+
 
   const togglePlayback = useCallback(async () => {
     if (audioPlayerManager.current) {

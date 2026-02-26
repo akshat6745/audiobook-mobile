@@ -59,7 +59,7 @@ export const chapterAPI = {
   ): Promise<ChapterListResponse> => {
     const encodedName = encodeURIComponent(novelName);
     const response: AxiosResponse<ChapterListResponse> = await api.get(
-      `/chapters-with-pages/${encodedName}?page=${page}`
+      `/chapters-with-pages/${novelName}?page=${page}`
     );
     return response.data;
   },
@@ -98,10 +98,14 @@ export const chapterAPI = {
 
 // Text-to-Speech API
 export const ttsAPI = {
-  convertTextToSpeech: async (text: string, voice: string): Promise<Blob> => {
+  convertTextToSpeech: async (
+    text: string,
+    paragraphVoice: string,
+    dialogueVoice: string
+  ): Promise<Blob> => {
     const response: AxiosResponse<Blob> = await api.post(
-      '/tts',
-      { text, voice },
+      '/tts-dual-voice',
+      { text, paragraphVoice, dialogueVoice },
       {
         responseType: 'blob',
       }
@@ -126,6 +130,18 @@ export const ttsAPI = {
   },
 };
 
+// Images Management API
+export const imageAPI = {
+  getNovelImages: async (novelId: string): Promise<any> => {
+    const response = await api.get(`/novel/${encodeURIComponent(novelId)}/images`);
+    return response.data;
+  },
+
+  getNovelImageUrl: (novelId: string, imageId: string): string => {
+    return `${API_BASE_URL}/novel/${encodeURIComponent(novelId)}/image/${encodeURIComponent(imageId)}`;
+  },
+};
+
 // User Management API
 export const userAPI = {
   login: async (username: string, password: string): Promise<AuthResponse> => {
@@ -146,14 +162,14 @@ export const userAPI = {
 
   saveProgress: async (
     username: string,
-    novelName: string,
+    novelSlug: string,
     lastChapterRead: number
   ): Promise<ProgressResponse> => {
     const response: AxiosResponse<ProgressResponse> = await api.post(
       '/user/progress',
       {
         username,
-        novelName,
+        novelName: novelSlug,
         lastChapterRead,
       }
     );
@@ -165,18 +181,6 @@ export const userAPI = {
       `/user/progress?username=${encodeURIComponent(username)}`
     );
     return response.data.progress;
-  },
-
-  getNovelProgress: async (
-    novelName: string,
-    username: string
-  ): Promise<UserProgress> => {
-    const encodedNovelName = encodeURIComponent(novelName);
-    const encodedUsername = encodeURIComponent(username);
-    const response: AxiosResponse<UserProgress> = await api.get(
-      `/user/progress/${encodedNovelName}?username=${encodedUsername}`
-    );
-    return response.data;
   },
 };
 

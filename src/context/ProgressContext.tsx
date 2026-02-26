@@ -54,17 +54,17 @@ export const ProgressProvider: React.FC<ProgressProviderProps> = ({ children }) 
     fetchProgress();
   }, [fetchProgress]);
 
-  const updateProgress = useCallback(async (novelTitle: string, chapterNumber: number) => {
+  const updateProgress = useCallback(async (novelSlug: string, chapterNumber: number) => {
     if (!user) return;
 
     // Optimistic update
     setProgressMap(prev => ({
       ...prev,
-      [novelTitle]: chapterNumber
+      [novelSlug]: chapterNumber
     }));
 
     try {
-      await userAPI.saveProgress(user, novelTitle, chapterNumber);
+      await userAPI.saveProgress(user, novelSlug, chapterNumber);
     } catch (error) {
       console.error('Error saving progress:', error);
       // Optionally revert state here if strict consistency is needed
