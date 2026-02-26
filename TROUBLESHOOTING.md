@@ -69,11 +69,11 @@ The app includes demo mode for when the AudioBookPython backend is not available
 This will allow you to explore all app features with demo data.
 
 #### Real Backend Setup
-1. Ensure AudioBookPython is running on `localhost:8080`
+1. Ensure AudioBookPython is running on `localhost:8000`
 2. Check CORS configuration allows your app
 3. Test API endpoints manually:
    ```bash
-   curl http://localhost:8080/health
+   curl http://localhost:8000/health
    ```
 
 ### 3. Metro Bundler Issues

@@ -112,7 +112,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
 
       Alert.alert(
         'Demo Mode',
-        'Backend not available. Loading demo novels for testing.\n\nTo use real data, ensure AudioBookPython backend is running on localhost:8080'
+        'Backend not available. Loading demo novels for testing.\n\nTo use real data, ensure AudioBookPython backend is running on localhost:8000'
       );
     } finally {
       setIsLoading(false);
@@ -197,7 +197,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
                 </Text>
               </View>
             )}
-            
+
             {progressMap[item.title] && (
               <View style={styles.lastReadBadge}>
                 <MaterialIcons name="history" size={14} color={Theme.colors.success[400]} />

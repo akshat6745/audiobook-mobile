@@ -45,14 +45,14 @@ For mobile development:
 
 This app requires the AudioBookPython backend to be running. Ensure the backend is:
 
-1. **Running on the correct port**: Default is `http://localhost:8080`
+1. **Running on the correct port**: Default is `http://localhost:8000`
 2. **API endpoints available**: All endpoints from the AudioBookPython API documentation
 3. **CORS configured**: Allow requests from your development domain
 
 Update the API base URL in `src/services/api.ts` if your backend is hosted elsewhere:
 
 ```typescript
-const API_BASE_URL = 'http://localhost:8080'; // Change this to your API URL
+const API_BASE_URL = 'http://localhost:8000'; // Change this to your API URL
 ```
 
 ## Installation & Setup

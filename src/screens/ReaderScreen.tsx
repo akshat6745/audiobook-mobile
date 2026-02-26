@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -187,8 +187,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setVoices(narratorVoice, dialogueVoice);
   }, [narratorVoice, dialogueVoice, setVoices]);
 
-  // Handle paragraph press - Moved up to avoid use-before-declaration in useEffect
-  // Handle paragraph press - Logic to switch context if needed
   const handleParagraphPress = async (index: number) => {
     console.log('🎯 handleParagraphPress called for index:', index);
 
@@ -210,6 +208,53 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
     await playParagraph(index);
   };
+
+  const goToPrevious = useCallback(() => {
+    if (chapter.chapterNumber > 1) {
+      navigation.replace('Reader', {
+        novel,
+        chapter: {
+          chapterNumber: chapter.chapterNumber - 1,
+          chapterTitle: `Chapter ${chapter.chapterNumber - 1}`,
+        },
+      });
+    }
+  }, [navigation, novel, chapter.chapterNumber]);
+
+  const goToNext = useCallback(() => {
+    if (!novel.chapterCount || chapter.chapterNumber < novel.chapterCount) {
+      navigation.replace('Reader', {
+        novel,
+        chapter: {
+          chapterNumber: chapter.chapterNumber + 1,
+          chapterTitle: `Chapter ${chapter.chapterNumber + 1}`,
+        },
+      });
+    }
+  }, [navigation, novel, chapter.chapterNumber]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+          <TouchableOpacity
+            onPress={goToPrevious}
+            disabled={chapter.chapterNumber <= 1}
+            style={{ padding: 8, opacity: chapter.chapterNumber <= 1 ? 0.3 : 1 }}
+          >
+            <MaterialIcons name="chevron-left" size={30} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={goToNext}
+            disabled={!!novel.chapterCount && chapter.chapterNumber >= novel.chapterCount}
+            style={{ padding: 8, opacity: (!!novel.chapterCount && chapter.chapterNumber >= novel.chapterCount) ? 0.3 : 1 }}
+          >
+            <MaterialIcons name="chevron-right" size={30} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation, chapter.chapterNumber, novel.chapterCount, goToPrevious, goToNext]);
 
 
 
