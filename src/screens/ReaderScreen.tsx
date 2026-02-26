@@ -124,42 +124,48 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
       setIsLoading(true);
       try {
         let newContent: string[] = [];
-        let isOffline = false;
+        let realTitle = chapter.chapterTitle || `Chapter ${chapter.chapterNumber}`;
 
         // Check offline storage first
         try {
           const offlineChapter = await offlineStorage.getChapter(novel.title, chapter.chapterNumber);
           if (offlineChapter) {
             console.log(`📱 [ReaderScreen] Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
-            isOffline = true;
 
             const processedContent = (offlineChapter.paragraphs || [])
               .map(p => p?.text?.trim() || '')
               .filter(text => text.length > 0);
 
-            const titleContent = `Chapter ${chapter.chapterNumber}: ${offlineChapter.chapterTitle || chapter.chapterTitle}`;
+            realTitle = offlineChapter.chapterTitle || `Chapter ${chapter.chapterNumber}`;
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
             newContent = [titleContent, ...processedContent];
+
+            setLocalContent(newContent);
+            navigation.setOptions({ title: realTitle });
+            setIsLoading(false);
+            return;
           }
         } catch (error) {
           console.warn('[ReaderScreen] Failed to check offline storage:', error);
         }
 
-        if (!isOffline) {
-          // Fetch content from API
-          console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
-          const chapterData = await chapterAPI.getChapterContent(
-            chapter.chapterNumber,
-            novel.slug
-          );
+        // Fetch content from API
+        console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
+        const chapterData = await chapterAPI.getChapterContent(
+          chapter.chapterNumber,
+          novel.slug
+        );
 
-          if (chapterData && chapterData.content) {
-            const processedContent = chapterData.content
-              .map((text) => text.trim())
-              .filter((text) => text.length > 0);
+        if (chapterData && chapterData.content) {
+          const processedContent = chapterData.content
+            .map((text) => text.trim())
+            .filter((text) => text.length > 0);
 
-            const titleContent = `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`;
-            newContent = [titleContent, ...processedContent];
-          }
+          realTitle = chapterData.chapterTitle || `Chapter ${chapter.chapterNumber}`;
+          const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
+          newContent = [titleContent, ...processedContent];
+
+          navigation.setOptions({ title: realTitle });
         }
 
         setLocalContent(newContent);
