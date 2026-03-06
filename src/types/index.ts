@@ -4,9 +4,10 @@ export interface Novel {
   title: string;
   author: string | null;
   chapterCount: number | null;
-  source: 'google_doc' | 'epub_upload';
+  source: 'cloudflare_d1' | 'google_doc' | 'epub_upload';
   slug: string;
-  description: string;
+  description: string | null;
+  isPublic?: boolean;
 }
 
 export interface Chapter {
@@ -14,6 +15,7 @@ export interface Chapter {
   chapterTitle: string;
   link?: string;
   id?: string;
+  wordCount?: number;
 }
 
 export interface ChapterContent {
@@ -42,6 +44,7 @@ export interface User {
 export interface UserProgress {
   novelName: string;
   lastChapterRead: number;
+  lastReadDate?: string;
 }
 
 export interface AuthResponse {
@@ -52,6 +55,7 @@ export interface AuthResponse {
 export interface ProgressResponse {
   status: string;
   message: string;
+  lastReadDate?: string;
 }
 
 export interface UserProgressResponse {
@@ -67,6 +71,48 @@ export interface AudioPlayerState {
   currentChapter?: Chapter;
 }
 
+// Download Types
+export interface DownloadRequest {
+  novel_name: string;
+  chapter_number: number;
+  narrator_voice: string;
+  dialogue_voice: string;
+}
+
+export interface DownloadResponse {
+  download_id: string;
+  status: string;
+  message: string;
+}
+
+export interface DownloadStatus {
+  download_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number;
+  total_files: number;
+  completed_files: number;
+  error_message?: string;
+  files?: {
+    content?: string;
+    audio?: {
+      title?: string;
+      paragraphs?: string[];
+    };
+  };
+}
+
+export interface DownloadedChapter {
+  downloadId: string;
+  novelName: string;
+  chapterNumber: number;
+  chapterTitle?: string;
+  status: DownloadStatus['status'];
+  progress: number;
+  downloadDate: string;
+  totalFiles: number;
+  completedFiles: number;
+}
+
 // Navigation Types
 export type RootStackParamList = {
   Auth: undefined;
@@ -76,6 +122,6 @@ export type RootStackParamList = {
   NovelList: undefined;
   ChapterList: { novel: Novel };
   Reader: { novel: Novel; chapter: Chapter };
-
+  Downloads: undefined;
   Profile: undefined;
 };

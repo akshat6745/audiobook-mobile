@@ -8,6 +8,9 @@ import {
   UserProgress,
   ProgressResponse,
   UserProgressResponse,
+  DownloadRequest,
+  DownloadResponse,
+  DownloadStatus,
 } from '../types';
 
 // Configure base URL for the AudioBookPython API
@@ -36,8 +39,9 @@ api.interceptors.response.use(
 
 // Novel Management API
 export const novelAPI = {
-  getAllNovels: async (): Promise<Novel[]> => {
-    const response: AxiosResponse<Novel[]> = await api.get('/novels');
+  getAllNovels: async (username?: string): Promise<Novel[]> => {
+    const url = username ? `/novels?username=${encodeURIComponent(username)}` : '/novels';
+    const response: AxiosResponse<Novel[]> = await api.get(url);
     return response.data;
   },
 
@@ -59,7 +63,7 @@ export const chapterAPI = {
   ): Promise<ChapterListResponse> => {
     const encodedName = encodeURIComponent(novelName);
     const response: AxiosResponse<ChapterListResponse> = await api.get(
-      `/chapters-with-pages/${novelName}?page=${page}`
+      `/chapters-with-pages/${encodedName}?page=${page}`
     );
     return response.data;
   },
@@ -68,32 +72,31 @@ export const chapterAPI = {
     chapterNumber: number,
     novelName: string
   ): Promise<ChapterContent> => {
-    const encodedName = encodeURIComponent(novelName);
-    const response: AxiosResponse<ChapterContent> = await api.get(
-      `/chapter?chapterNumber=${chapterNumber}&novelName=${encodedName}`
-    );
-    return response.data;
-  },
-
-  getDownloadChapterUrl: (
-    novelName: string,
-    chapterNumber: number,
-    voice: string,
-    dialogueVoice: string,
-    progressId?: string
-  ): string => {
-    const encodedName = encodeURIComponent(novelName);
-    let url = `${API_BASE_URL}/download-chapter/${encodedName}/${chapterNumber}?voice=${encodeURIComponent(voice)}&dialogue_voice=${encodeURIComponent(dialogueVoice)}`;
-    if (progressId) {
-      url += `&progress_id=${encodeURIComponent(progressId)}`;
+    // Local-first: check for downloaded content before hitting the network
+    try {
+      const { offlineContentService } = await import('../services/offlineContentService');
+      const offlineContent = await offlineContentService.getOfflineChapterContent(novelName, chapterNumber);
+      if (offlineContent) {
+        console.log('📖 Using offline chapter content for chapter', chapterNumber);
+        return offlineContent;
+      }
+    } catch (offlineError) {
+      console.warn('Offline content check failed, will try online:', offlineError);
     }
-    return url;
+
+    // No offline content — fetch from API
+    try {
+      const encodedName = encodeURIComponent(novelName);
+      const response: AxiosResponse<ChapterContent> = await api.get(
+        `/chapter?chapterNumber=${chapterNumber}&novelName=${encodedName}`
+      );
+      return response.data;
+    } catch (error) {
+      console.warn('Online chapter content failed:', error);
+      throw error;
+    }
   },
 
-  getDownloadProgress: async (progressId: string): Promise<{ status: string; percent: number; total: number; current: number }> => {
-    const response = await api.get(`/download/progress/${encodeURIComponent(progressId)}`);
-    return response.data;
-  },
 };
 
 // Text-to-Speech API
@@ -181,6 +184,38 @@ export const userAPI = {
       `/user/progress?username=${encodeURIComponent(username)}`
     );
     return response.data.progress;
+  },
+
+  getUserProgressForNovel: async (
+    novelName: string,
+    username: string
+  ): Promise<UserProgress> => {
+    const response: AxiosResponse<UserProgress> = await api.get(
+      `/user/progress/${encodeURIComponent(novelName)}?username=${encodeURIComponent(username)}`
+    );
+    return response.data;
+  },
+};
+
+// Download Management API
+export const downloadAPI = {
+  startChapterDownload: async (request: DownloadRequest): Promise<DownloadResponse> => {
+    const response: AxiosResponse<DownloadResponse> = await api.post('/download/chapter', request);
+    return response.data;
+  },
+
+  getDownloadStatus: async (downloadId: string): Promise<DownloadStatus> => {
+    const response: AxiosResponse<DownloadStatus> = await api.get(`/download/status/${downloadId}`);
+    return response.data;
+  },
+
+  getDownloadFiles: async (downloadId: string): Promise<string[]> => {
+    const response: AxiosResponse<string[]> = await api.get(`/download/${downloadId}/files`);
+    return response.data;
+  },
+
+  getDownloadFileUrl: (downloadId: string, filename: string): string => {
+    return `${API_BASE_URL}/download/${downloadId}/files/${filename}`;
   },
 };
 

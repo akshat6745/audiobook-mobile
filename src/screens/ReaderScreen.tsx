@@ -21,7 +21,6 @@ import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useProgress } from '../context/ProgressContext';
-import { offlineStorage } from '../services/OfflineStorageService';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
@@ -126,29 +125,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         let newContent: string[] = [];
         let realTitle = chapter.chapterTitle || `Chapter ${chapter.chapterNumber}`;
 
-        // Check offline storage first
-        try {
-          const offlineChapter = await offlineStorage.getChapter(novel.title, chapter.chapterNumber);
-          if (offlineChapter) {
-            console.log(`📱 [ReaderScreen] Found offline content for ${novel.title} - Chapter ${chapter.chapterNumber}`);
-
-            const processedContent = (offlineChapter.paragraphs || [])
-              .map(p => p?.text?.trim() || '')
-              .filter(text => text.length > 0);
-
-            realTitle = offlineChapter.chapterTitle || `Chapter ${chapter.chapterNumber}`;
-            const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
-            newContent = [titleContent, ...processedContent];
-
-            setLocalContent(newContent);
-            navigation.setOptions({ title: realTitle });
-            setIsLoading(false);
-            return;
-          }
-        } catch (error) {
-          console.warn('[ReaderScreen] Failed to check offline storage:', error);
-        }
-
         // Fetch content from API
         console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
         const chapterData = await chapterAPI.getChapterContent(
@@ -179,7 +155,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     };
 
     fetchContent();
-  }, [chapter.chapterNumber, novel.title]); // Dependency on IDs, not objects
+  }, [chapter.chapterNumber, novel.title, novel.slug]); // Dependency on IDs, not objects
 
   // Save progress (Optimized to only trigger when actually viewing)
   useEffect(() => {

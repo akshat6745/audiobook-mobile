@@ -19,8 +19,9 @@ import { Chapter, Novel, RootStackParamList, UserProgress } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useProgress } from '../context/ProgressContext';
 import { useAudio } from '../context/AudioContext';
-import Theme from '../styles/theme';
+import { useDownload } from '../context/DownloadContext';
 import DownloadButton from '../components/DownloadButton';
+import Theme from '../styles/theme';
 
 type ChapterListScreenNavigationProp = StackNavigationProp<RootStackParamList, 'ChapterList'>;
 type ChapterListScreenRouteProp = RouteProp<RootStackParamList, 'ChapterList'>;
@@ -44,6 +45,7 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   const lastReadChapter = progressMap[novel.slug] || progressMap[novel.title] || null;
   const { user } = useAuth();
   const { narratorVoice, dialogueVoice } = useAudio();
+  const { isChapterDownloaded, activeDownloads, downloadedChapters } = useDownload();
 
   useEffect(() => {
     loadChapters(1);
@@ -115,33 +117,65 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [navigation, novel]);
 
 
-  const renderChapterCard = (item: Chapter, isLastRead: boolean) => (
-    <View style={styles.chapterCard}>
-      <TouchableOpacity
-        style={[styles.chapterContent, isLastRead && styles.lastReadChapter]}
-        onPress={() => handleChapterPress(item)}
-      >
-        <View style={styles.chapterHeader}>
-          <Text style={styles.chapterNumber}>
-            Chapter {item.chapterNumber}
-          </Text>
-          {isLastRead && (
-            <View style={styles.lastReadBadge}>
-              <Text style={styles.lastReadText}>LAST READ</Text>
+  const getChapterDownloadStatus = (chapterNumber: number) => {
+    // Find active download for this chapter
+    const activeDownload = Array.from(activeDownloads.values()).find(
+      download => downloadedChapters.some(
+        dc => dc.downloadId === download.download_id &&
+              dc.novelName === novel.slug &&
+              dc.chapterNumber === chapterNumber
+      )
+    );
+
+    return activeDownload;
+  };
+
+  const renderChapterCard = (item: Chapter, isLastRead: boolean) => {
+    const isOfflineAvailable = isChapterDownloaded(novel.slug, item.chapterNumber);
+    const activeDownload = getChapterDownloadStatus(item.chapterNumber);
+
+    return (
+      <View style={styles.chapterCard}>
+        <TouchableOpacity
+          style={[styles.chapterContent, isLastRead && styles.lastReadChapter]}
+          onPress={() => handleChapterPress(item)}
+        >
+          <View style={styles.chapterHeader}>
+            <View style={styles.chapterNumberRow}>
+              <Text style={styles.chapterNumber}>
+                Chapter {item.chapterNumber}
+              </Text>
+              {activeDownload && (
+                <View style={styles.progressIndicator}>
+                  <Text style={styles.progressText}>
+                    {Math.round(activeDownload.progress)}%
+                  </Text>
+                </View>
+              )}
+              {!activeDownload && isOfflineAvailable && (
+                <MaterialIcons name="offline-pin" size={16} color="#4CAF50" />
+              )}
             </View>
-          )}
-        </View>
-        <Text style={styles.chapterTitle} numberOfLines={2}>
-          {item.chapterTitle}
-        </Text>
-      </TouchableOpacity>
+            {isLastRead && (
+              <View style={styles.lastReadBadge}>
+                <Text style={styles.lastReadText}>LAST READ</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.chapterTitle} numberOfLines={2}>
+            {item.chapterTitle}
+          </Text>
+        </TouchableOpacity>
 
       <View style={styles.chapterActions}>
         <DownloadButton
-          novelName={novel.title}
+          novelName={novel.slug}
           chapterNumber={item.chapterNumber}
-          voice={narratorVoice}
+          chapterTitle={item.chapterTitle}
+          narratorVoice={narratorVoice}
           dialogueVoice={dialogueVoice}
+          size="small"
+          style={styles.downloadButton}
         />
         <TouchableOpacity
           style={[styles.actionButton, styles.readButton]}
@@ -151,7 +185,8 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
     </View>
-  );
+    );
+  };
 
   const renderChapter = ({ item }: { item: Chapter }) => {
     const isLastRead = lastReadChapter === item.chapterNumber;
@@ -312,6 +347,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Theme.spacing.sm,
   },
+  chapterNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   chapterNumber: {
     fontSize: Theme.typography.fontSizes.sm,
     fontWeight: Theme.typography.fontWeights.bold,
@@ -348,6 +388,24 @@ const styles = StyleSheet.create({
   },
   readButton: {
     backgroundColor: Theme.colors.primary[100],
+  },
+  downloadButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    minWidth: 60,
+  },
+  progressIndicator: {
+    backgroundColor: '#FF9800',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  progressText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 
   loadingContainer: {

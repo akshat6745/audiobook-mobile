@@ -1,135 +1,279 @@
-import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Alert, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  View,
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { chapterAPI } from '../services/api';
-import { offlineStorage } from '../services/OfflineStorageService';
+import { useDownload } from '../context/DownloadContext';
+import { DownloadRequest } from '../types';
 
 interface DownloadButtonProps {
   novelName: string;
   chapterNumber: number;
-  voice: string;
-  dialogueVoice: string;
-  onDownloadComplete?: () => void;
+  chapterTitle?: string;
+  narratorVoice?: string;
+  dialogueVoice?: string;
+  disabled?: boolean;
+  size?: 'small' | 'medium' | 'large';
+  style?: any;
 }
 
 const DownloadButton: React.FC<DownloadButtonProps> = ({
   novelName,
   chapterNumber,
-  voice,
-  dialogueVoice,
-  onDownloadComplete,
+  chapterTitle,
+  narratorVoice = 'en-US-AvaMultilingualNeural',
+  dialogueVoice = 'en-GB-RyanNeural',
+  disabled = false,
+  size = 'medium',
+  style,
 }) => {
-  const [status, setStatus] = useState<'idle' | 'downloading' | 'downloaded'>('idle');
-  const [progress, setProgress] = useState(0);
+  const {
+    startDownload,
+    isChapterDownloaded,
+    activeDownloads,
+    deleteDownload,
+    downloadedChapters,
+  } = useDownload();
 
-  useEffect(() => {
-    checkStatus();
-  }, [novelName, chapterNumber]);
+  const [isStartingDownload, setIsStartingDownload] = useState(false);
 
-  const checkStatus = async () => {
-    const isDownloaded = await offlineStorage.isChapterDownloaded(novelName, chapterNumber);
-    setStatus(isDownloaded ? 'downloaded' : 'idle');
+  const isDownloaded = isChapterDownloaded(novelName, chapterNumber);
+
+  // Find active download for this chapter
+  const activeDownload = Array.from(activeDownloads.values()).find(
+    download => downloadedChapters.some(
+      dc => dc.downloadId === download.download_id &&
+            dc.novelName === novelName &&
+            dc.chapterNumber === chapterNumber
+    )
+  );
+
+  const handleDownloadPress = async () => {
+    if (isDownloaded) {
+      // Show options to delete or manage
+      Alert.alert(
+        'Chapter Downloaded',
+        'This chapter is already downloaded. What would you like to do?',
+        [
+          {
+            text: 'Keep',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: handleDeleteDownload,
+          },
+        ]
+      );
+      return;
+    }
+
+    if (activeDownload) {
+      Alert.alert(
+        'Download in Progress',
+        `Download is ${Math.round(activeDownload.progress)}% complete. Please wait.`
+      );
+      return;
+    }
+
+    await handleStartDownload();
   };
 
-  const generateId = () => {
-    return Math.random().toString(36).substring(2) + Date.now().toString(36);
-  };
-
-  const handleDownload = async () => {
-    const progressId = generateId();
-    let pollInterval: NodeJS.Timeout;
-
+  const handleStartDownload = async () => {
     try {
-      setStatus('downloading');
-      setProgress(0);
+      setIsStartingDownload(true);
 
-      // Start polling
-      pollInterval = setInterval(async () => {
-        try {
-          const progressData = await chapterAPI.getDownloadProgress(progressId);
-          if (progressData.percent) {
-            setProgress(progressData.percent);
-          }
-        } catch (error: any) {
-          // Stop polling if 404 (ID not found/backend restarted) or other error
-          if (error.response && error.response.status === 404) {
-            console.warn('Progress ID not found, stopping poll');
-            clearInterval(pollInterval);
-          }
-        }
-      }, 1000);
+      const request: DownloadRequest = {
+        novel_name: novelName,
+        chapter_number: chapterNumber,
+        narrator_voice: narratorVoice,
+        dialogue_voice: dialogueVoice,
+      };
 
-      const downloadUrl = chapterAPI.getDownloadChapterUrl(novelName, chapterNumber, voice, dialogueVoice, progressId);
-      
-      clearInterval(pollInterval);
-      setProgress(100);
-      
-      await offlineStorage.downloadAndSaveChapter(downloadUrl, novelName, chapterNumber);
-      setStatus('downloaded');
-      if (onDownloadComplete) onDownloadComplete();
-      Alert.alert('Success', 'Chapter downloaded successfully');
+      await startDownload(request);
+
+      Alert.alert(
+        'Download Started',
+        `Chapter ${chapterNumber}${chapterTitle ? ` - ${chapterTitle}` : ''} download started. You can monitor progress in the Downloads screen.`
+      );
     } catch (error) {
-      if (pollInterval!) clearInterval(pollInterval);
-      console.error('Download failed:', error);
-      setStatus('idle');
-      Alert.alert('Error', 'Failed to download chapter');
+      console.error('Failed to start download:', error);
+      Alert.alert(
+        'Download Failed',
+        'Failed to start chapter download. Please check your connection and try again.'
+      );
+    } finally {
+      setIsStartingDownload(false);
     }
   };
 
-  const handleDelete = async () => {
-    Alert.alert(
-      'Delete Download',
-      'Are you sure you want to delete this chapter?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await offlineStorage.deleteChapter(novelName, chapterNumber);
-            setStatus('idle');
-          },
-        },
-      ]
-    );
+  const handleDeleteDownload = async () => {
+    try {
+      const downloadedChapter = downloadedChapters.find(
+        dc => dc.novelName === novelName && dc.chapterNumber === chapterNumber
+      );
+
+      if (downloadedChapter) {
+        await deleteDownload(downloadedChapter.downloadId);
+        Alert.alert('Success', 'Chapter download deleted successfully.');
+      }
+    } catch (error) {
+      console.error('Failed to delete download:', error);
+      Alert.alert(
+        'Delete Failed',
+        'Failed to delete chapter download. Please try again.'
+      );
+    }
   };
 
-  if (status === 'downloading') {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="small" color="#2196F3" />
-        {progress > 0 && (
-          <Text style={styles.progressText}>{Math.round(progress)}%</Text>
-        )}
-      </View>
-    );
-  }
+  const getIconName = (): keyof typeof MaterialIcons.glyphMap => {
+    if (isDownloaded) return 'download-done';
+    if (activeDownload) return 'downloading';
+    return 'download';
+  };
 
-  if (status === 'downloaded') {
-    return (
-      <TouchableOpacity onPress={handleDelete} style={styles.container}>
-        <MaterialIcons name="offline-pin" size={24} color="#4CAF50" />
-      </TouchableOpacity>
-    );
-  }
+  const getIconColor = (): string => {
+    if (isDownloaded) return '#4CAF50';
+    if (activeDownload) return '#FF9800';
+    if (disabled) return '#ccc';
+    return '#2196F3';
+  };
+
+  const getButtonText = (): string => {
+    if (isDownloaded) return 'Downloaded';
+    if (activeDownload) {
+      const progress = Math.round(activeDownload.progress);
+      const status = activeDownload.status;
+      if (status === 'pending') return 'Starting...';
+      if (status === 'processing') return `${progress}%`;
+      if (status === 'completed') return 'Done!';
+      if (status === 'error') return 'Failed';
+      return `${progress}%`;
+    }
+    return 'Download';
+  };
+
+  const iconSize = size === 'small' ? 16 : size === 'medium' ? 20 : 24;
+  const textSize = size === 'small' ? 12 : size === 'medium' ? 14 : 16;
 
   return (
-    <TouchableOpacity onPress={handleDownload} style={styles.container}>
-      <MaterialIcons name="file-download" size={24} color="#757575" />
+    <TouchableOpacity
+      style={[
+        styles.button,
+        styles[size],
+        disabled && styles.disabled,
+        isDownloaded && styles.downloaded,
+        activeDownload && styles.downloading,
+        style,
+      ]}
+      onPress={handleDownloadPress}
+      disabled={disabled || isStartingDownload}
+      activeOpacity={0.7}
+    >
+      <View style={styles.content}>
+        {isStartingDownload ? (
+          <ActivityIndicator size="small" color={getIconColor()} />
+        ) : (
+          <MaterialIcons
+            name={getIconName()}
+            size={iconSize}
+            color={getIconColor()}
+          />
+        )}
+        <Text
+          style={[
+            styles.text,
+            { fontSize: textSize, color: getIconColor() },
+            disabled && styles.disabledText,
+          ]}
+        >
+          {getButtonText()}
+        </Text>
+      </View>
+
+      {activeDownload && (
+        <View style={styles.progressBar}>
+          <View
+            style={[
+              styles.progressFill,
+              { width: `${activeDownload.progress}%` },
+            ]}
+          />
+        </View>
+      )}
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 8,
+  button: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 80,
   },
-  progressText: {
-    fontSize: 10,
-    color: '#2196F3',
-    marginTop: 2,
+  small: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 70,
+  },
+  medium: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 80,
+  },
+  large: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minWidth: 100,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  text: {
+    fontWeight: '500',
+  },
+  disabled: {
+    opacity: 0.5,
+    borderColor: '#ccc',
+  },
+  disabledText: {
+    color: '#ccc',
+  },
+  downloaded: {
+    borderColor: '#4CAF50',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  downloading: {
+    borderColor: '#FF9800',
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+  },
+  progressBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: 'rgba(255, 152, 0, 0.2)',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#FF9800',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
   },
 });
 

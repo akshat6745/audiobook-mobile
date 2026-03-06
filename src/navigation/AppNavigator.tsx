@@ -18,6 +18,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 // Icons
 import { MaterialIcons } from '@expo/vector-icons';
 import { AudioProvider } from '../context/AudioContext';
+import { DownloadProvider } from '../context/DownloadContext';
 import GlobalMiniPlayer from '../components/GlobalMiniPlayer';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -32,10 +33,10 @@ const MainTabNavigator = () => {
 
           if (route.name === 'Novels') {
             iconName = 'library-books';
+          } else if (route.name === 'Downloads') {
+            iconName = 'download';
           } else if (route.name === 'Profile') {
             iconName = 'person';
-          } else if (route.name === 'Downloads') {
-            iconName = 'offline-pin';
           } else {
             iconName = 'book';
           }
@@ -53,14 +54,14 @@ const MainTabNavigator = () => {
         options={{ title: 'My Library' }}
       />
       <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-      <Tab.Screen
         name="Downloads"
         component={DownloadsScreen}
         options={{ title: 'Downloads' }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ title: 'Profile' }}
       />
     </Tab.Navigator>
   );
@@ -141,16 +142,18 @@ const AppNavigator: React.FC = () => {
 
   return (
     <AudioProvider>
-      <NavigationContainer>
-        {user ? (
-          <>
-            <MainStack />
-            <GlobalMiniPlayer />
-          </>
-        ) : (
-          <AuthStack />
-        )}
-      </NavigationContainer>
+      <DownloadProvider>
+        <NavigationContainer>
+          {user ? (
+            <>
+              <MainStack />
+              <GlobalMiniPlayer />
+            </>
+          ) : (
+            <AuthStack />
+          )}
+        </NavigationContainer>
+      </DownloadProvider>
     </AudioProvider>
   );
 };

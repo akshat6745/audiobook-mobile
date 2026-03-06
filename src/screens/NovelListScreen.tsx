@@ -52,7 +52,11 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
     }).start();
   }, []);
 
-
+  useFocusEffect(
+    useCallback(() => {
+      refreshProgress();
+    }, [refreshProgress])
+  );
 
   useEffect(() => {
     filterNovels();
@@ -61,7 +65,7 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
   const loadNovels = async () => {
     try {
       setIsLoading(true);
-      const novelsData = await novelAPI.getAllNovels();
+      const novelsData = await novelAPI.getAllNovels(user || undefined);
       setNovels(novelsData);
       setFilteredNovels(novelsData);
 
@@ -72,38 +76,53 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
       const demoNovels: Novel[] = [
         {
           id: 'demo-1',
+          slug: 'the-great-adventure',
           title: 'The Great Adventure',
           author: 'Demo Author',
+          description: 'An epic journey across unknown lands',
           chapterCount: 25,
-          source: 'epub_upload'
+          source: 'cloudflare_d1',
+          isPublic: true
         },
         {
           id: 'demo-2',
+          slug: 'mystery-of-the-lost-city',
           title: 'Mystery of the Lost City',
           author: 'Jane Smith',
+          description: 'Uncover the secrets of an ancient civilization',
           chapterCount: 18,
-          source: 'google_doc'
+          source: 'cloudflare_d1',
+          isPublic: true
         },
         {
           id: 'demo-3',
+          slug: 'science-fiction-chronicles',
           title: 'Science Fiction Chronicles',
           author: 'John Doe',
+          description: 'Explore distant galaxies and futuristic worlds',
           chapterCount: 32,
-          source: 'epub_upload'
+          source: 'cloudflare_d1',
+          isPublic: true
         },
         {
           id: 'demo-4',
+          slug: 'romance-under-the-stars',
           title: 'Romance Under the Stars',
           author: 'Alice Johnson',
+          description: 'A love story written in the cosmos',
           chapterCount: 22,
-          source: 'epub_upload'
+          source: 'cloudflare_d1',
+          isPublic: true
         },
         {
           id: 'demo-5',
+          slug: 'the-ancient-prophecy',
           title: 'The Ancient Prophecy',
           author: 'Robert Miller',
+          description: 'Destiny awaits those who seek the truth',
           chapterCount: 45,
-          source: 'google_doc'
+          source: 'cloudflare_d1',
+          isPublic: true
         }
       ];
 
@@ -198,11 +217,11 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             )}
 
-            {progressMap[item.title] && (
+            {(progressMap[item.slug] || progressMap[item.title]) && (
               <View style={styles.lastReadBadge}>
                 <MaterialIcons name="history" size={14} color={Theme.colors.success[400]} />
                 <Text style={styles.lastReadText}>
-                  Ch. {progressMap[item.title]}
+                  Ch. {progressMap[item.slug] || progressMap[item.title]}
                 </Text>
               </View>
             )}
