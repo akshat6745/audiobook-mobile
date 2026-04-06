@@ -140,6 +140,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     } catch (error) {
       console.error('Error playing paragraph:', error);
       isTransitioning.current = false;
+      // Reset UI state so the player doesn't get stuck in loading/playing
+      setIsPlaying(false);
+      setAudioPlayerState(prev => ({ ...prev, isPlaying: false, isLoading: false }));
     }
   }, [content]);
 
@@ -204,12 +207,24 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
                 content[toIndex],
                 content
               );
-              if (!success) isTransitioning.current = false;
+              if (!success) {
+                isTransitioning.current = false;
+                // Paragraph failed entirely (both offline and TTS failed) — skip forward
+                if (toIndex + 1 < content.length) {
+                  console.warn(`⏭️ Paragraph ${toIndex} failed, skipping to ${toIndex + 1}`);
+                  playParagraph(toIndex + 1);
+                } else {
+                  await loadNextChapter();
+                }
+              }
             } catch (error) {
               console.error('Auto-advance error:', error);
               isTransitioning.current = false;
-              // Fallback
-              playParagraph(toIndex);
+              // Skip forward rather than stopping completely
+              if (toIndex + 1 < content.length) {
+                console.warn(`⏭️ Auto-advance error at ${toIndex}, skipping to ${toIndex + 1}`);
+                playParagraph(toIndex + 1);
+              }
             }
           } else if (toIndex >= content.length) {
             console.log('🏁 End of chapter reached (active), loading next chapter...');

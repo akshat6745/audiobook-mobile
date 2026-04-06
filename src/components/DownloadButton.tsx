@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   TouchableOpacity,
   Text,
@@ -44,13 +44,15 @@ const DownloadButton: React.FC<DownloadButtonProps> = ({
 
   const isDownloaded = isChapterDownloaded(novelName, chapterNumber);
 
-  // Find active download for this chapter
-  const activeDownload = Array.from(activeDownloads.values()).find(
-    download => downloadedChapters.some(
-      dc => dc.downloadId === download.download_id &&
-            dc.novelName === novelName &&
-            dc.chapterNumber === chapterNumber
-    )
+  const activeDownload = useMemo(
+    () => Array.from(activeDownloads.values()).find(
+      download => downloadedChapters.some(
+        dc => dc.downloadId === download.download_id &&
+              dc.novelName === novelName &&
+              dc.chapterNumber === chapterNumber
+      )
+    ),
+    [activeDownloads, downloadedChapters, novelName, chapterNumber]
   );
 
   const handleDownloadPress = async () => {

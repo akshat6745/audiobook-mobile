@@ -34,11 +34,12 @@ export class AudioCacheManager {
   private currentNovelName: string | null = null;
   private currentChapterNumber: number | null = null;
 
-  // Chapter-level cache for offline audio to avoid repeated disk/AsyncStorage reads per paragraph
+  // Chapter-level cache for offline audio with validation to avoid repeated disk/AsyncStorage reads
   private offlineAudioCache: {
     novelName: string;
     chapterNumber: number;
-    data: { titleAudio?: string; paragraphAudios: string[] } | null;
+    data: { titleAudio?: string; paragraphAudios: (string | null)[] } | null;
+    paragraphCount: number; // Track expected paragraph count for validation
   } | null = null;
 
   constructor(
@@ -57,9 +58,17 @@ export class AudioCacheManager {
   }
   
   setContext(novelName: string, chapterNumber: number) {
+    // Only clear offline cache if switching to a different chapter
+    const isNewChapter =
+      novelName !== this.currentNovelName ||
+      chapterNumber !== this.currentChapterNumber;
+
+    if (isNewChapter) {
+      this.offlineAudioCache = null;
+    }
+
     this.currentNovelName = novelName;
     this.currentChapterNumber = chapterNumber;
-    this.offlineAudioCache = null; // Clear per-chapter cache on context change
   }
 
   /**
@@ -264,30 +273,63 @@ export class AudioCacheManager {
               novelName: this.currentNovelName,
               chapterNumber: this.currentChapterNumber,
               data: offlineData,
+              paragraphCount: offlineData ? offlineData.paragraphAudios.length : 0,
             };
           }
 
-          const offlineAudio = this.offlineAudioCache.data;
-          if (offlineAudio) {
-            // Index 0 = chapter title → titleAudio
-            // Index N (N>0) = paragraph N-1 → paragraphAudios[N-1]
-            // (localContent[0] is the title string, so paragraph audio indices are offset by 1)
+          // Capture in local variable so TypeScript knows it's non-null throughout the block
+          const cachedOffline = this.offlineAudioCache;
+          const offlineAudio = cachedOffline?.data;
+          if (offlineAudio && cachedOffline && cachedOffline.paragraphCount > 0) {
+            // CRITICAL: Index mapping for offline audio
+            // paragraphIndex 0 = chapter title (titleAudio)
+            // paragraphIndex 1..N = paragraphs 0..(N-1) → paragraphAudios[0]..(N-1]
             let offlineUri: string | undefined;
+
             if (paragraphIndex === 0) {
+              // Chapter title
               offlineUri = offlineAudio.titleAudio;
+              console.log(`📂 Looking for title audio: ${offlineUri ? 'found' : 'not available'}`);
+            } else if (paragraphIndex > 0 && paragraphIndex <= cachedOffline.paragraphCount) {
+              // Regular paragraphs (1-indexed in AudioCacheManager, 0-indexed in array)
+              const audioIndex = paragraphIndex - 1;
+              const entry = offlineAudio.paragraphAudios[audioIndex];
+              // null means this paragraph's file was missing/invalid — fall through to TTS
+              offlineUri = entry ?? undefined;
+              console.log(
+                `📂 Looking for paragraph ${paragraphIndex} → audio index ${audioIndex}: ` +
+                `${offlineUri ? 'found' : entry === null ? 'missing (TTS fallback)' : 'not found'}`
+              );
             } else {
-              offlineUri = offlineAudio.paragraphAudios[paragraphIndex - 1];
+              // Index out of bounds
+              console.warn(
+                `⚠️ Paragraph index ${paragraphIndex} out of range for offline audio ` +
+                `(available: 0=${offlineAudio.titleAudio ? 'title' : 'none'}, ` +
+                `1-${cachedOffline.paragraphCount}=paragraphs)`
+              );
             }
 
             if (offlineUri) {
               const fileInfo = await FileSystem.getInfoAsync(offlineUri);
-              if (fileInfo.exists) {
-                console.log(`📂 Using offline audio for paragraph ${paragraphIndex}`);
+              if (
+                fileInfo.exists &&
+                'size' in fileInfo &&
+                (fileInfo as any).size &&
+                (fileInfo as any).size > 1024
+              ) {
+                console.log(
+                  `✅ Using offline audio for paragraph ${paragraphIndex} (${(fileInfo as any).size} bytes)`
+                );
                 audioData.audio_received = true;
                 audioData.audio_uri = offlineUri;
                 audioData.is_loading = false;
                 this.cache.set(paragraphIndex, audioData);
                 return; // Skip TTS API call entirely
+              } else {
+                console.warn(
+                  `⚠️ Offline audio file invalid for paragraph ${paragraphIndex}: ` +
+                  `exists=${fileInfo.exists}, size=${'size' in fileInfo ? (fileInfo as any).size : 'unknown'}`
+                );
               }
             }
           }

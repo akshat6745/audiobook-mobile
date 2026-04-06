@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   StyleSheet,
   TouchableOpacity,
   Alert,
@@ -18,12 +18,88 @@ import { RouteProp } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { chapterAPI, userAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
+import { offlineContentService } from '../services/offlineContentService';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useProgress } from '../context/ProgressContext';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
+
+interface ParagraphItemProps {
+  paragraph: string;
+  index: number;
+  isActive: boolean;
+  onPress: (index: number) => void;
+  fontSize: number;
+  backgroundColor: string;
+  textColor: string;
+}
+
+const ParagraphItem = React.memo(({
+  paragraph, index, isActive, onPress, fontSize, backgroundColor, textColor,
+}: ParagraphItemProps) => {
+  const isTitle = index === 0;
+  const isLight = backgroundColor === '#fff';
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => onPress(index)}
+      style={[
+        styles.paragraphContainer,
+        {
+          backgroundColor: isActive
+            ? (isLight ? 'rgba(100, 181, 246, 0.15)' : 'rgba(100, 181, 246, 0.2)')
+            : (isLight ? '#ffffff' : '#252525'),
+          borderLeftColor: isActive ? '#64b5f6' : 'transparent',
+          borderLeftWidth: isActive ? 4 : 0,
+          borderColor: isActive ? '#64b5f6' : (isLight ? '#e0e0e0' : '#3A3A3A'),
+          shadowColor: isActive ? '#64b5f6' : '#000',
+          shadowOffset: { width: 0, height: isActive ? 4 : 2 },
+          shadowOpacity: isActive ? 0.25 : (isLight ? 0.1 : 0.3),
+          shadowRadius: isActive ? 8 : 4,
+          elevation: isActive ? 8 : 3,
+          transform: [{ scale: isActive ? 1.01 : 1 }],
+          marginBottom: isTitle ? 24 : 16,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          isTitle ? styles.chapterTitleText : styles.paragraph,
+          {
+            fontSize: isTitle ? fontSize * 1.5 : fontSize,
+            color: isActive ? (isLight ? '#1565c0' : '#90caf9') : textColor,
+            fontWeight: isTitle ? '700' : (isActive ? '600' : '400'),
+            lineHeight: fontSize * (isTitle ? 1.5 : 1.6),
+            marginTop: isActive ? 4 : 0,
+            textAlign: isTitle ? 'center' : 'justify',
+            paddingVertical: isTitle ? 4 : 0,
+          },
+        ]}
+      >
+        {paragraph}
+      </Text>
+      <View style={styles.paragraphFooter}>
+        <Text
+          style={[
+            styles.paragraphLabel,
+            {
+              color: isActive ? '#64b5f6' : (isLight ? '#757575' : '#888'),
+              fontWeight: isActive ? '600' : '400',
+            },
+          ]}
+        >
+          {isTitle ? 'Chapter Title' : `Paragraph ${index}`}
+        </Text>
+        <Text style={[styles.wordCount, { color: isLight ? '#bdbdbd' : '#666' }]}>
+          {paragraph.split(' ').length} words
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 interface Props {
   navigation: ReaderScreenNavigationProp;
@@ -65,27 +141,18 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const [narratorVoice, setNarratorVoice] = useState("en-US-AvaMultilingualNeural");
   const [dialogueVoice, setDialogueVoice] = useState("en-GB-RyanNeural");
 
-  const scrollViewRef = useRef<ScrollView>(null);
-  const paragraphRefs = useRef<{ [key: number]: View | null }>({});
+  const flatListRef = useRef<FlatList>(null);
 
   const isTransitioning = useRef(false); // Track if we are switching paragraphs
   const { user } = useAuth();
 
   // Auto-scroll functionality
-  const scrollToActiveParagraph = useCallback((paragraphIndex: number) => {
-    if (scrollViewRef.current && paragraphRefs.current[paragraphIndex]) {
-      paragraphRefs.current[paragraphIndex]?.measureLayout(
-        scrollViewRef.current as any,
-        (x, y, width, height) => {
-          const scrollPosition = Math.max(0, y - 100); // Offset for better visibility
-          scrollViewRef.current?.scrollTo({
-            y: scrollPosition,
-            animated: true,
-          });
-          console.log(`📍 Auto-scrolled to paragraph ${paragraphIndex} at position ${scrollPosition}`);
-        },
-        () => console.warn(`⚠️ Could not measure paragraph ${paragraphIndex} for auto-scroll`)
-      );
+  const scrollToActiveParagraph = useCallback((index: number) => {
+    try {
+      flatListRef.current?.scrollToIndex({ index, animated: true, viewOffset: 100 });
+    } catch {
+      // If item is not yet rendered, scroll to approximate offset
+      flatListRef.current?.scrollToOffset({ offset: index * 120, animated: true });
     }
   }, []);
 
@@ -127,21 +194,42 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
         // Fetch content from API
         console.log('📥 [ReaderScreen] Fetching content for chapter:', chapter.chapterNumber);
-        const chapterData = await chapterAPI.getChapterContent(
-          chapter.chapterNumber,
-          novel.slug
-        );
+        try {
+          const chapterData = await chapterAPI.getChapterContent(
+            chapter.chapterNumber,
+            novel.slug
+          );
 
-        if (chapterData && chapterData.content) {
-          const processedContent = chapterData.content
-            .map((text) => text.trim())
-            .filter((text) => text.length > 0);
+          if (chapterData && chapterData.content) {
+            const processedContent = chapterData.content
+              .map((text) => text.trim())
+              .filter((text) => text.length > 0);
 
-          realTitle = chapterData.chapterTitle || `Chapter ${chapter.chapterNumber}`;
-          const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
-          newContent = [titleContent, ...processedContent];
+            realTitle = chapterData.chapterTitle || `Chapter ${chapter.chapterNumber}`;
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
+            newContent = [titleContent, ...processedContent];
 
-          navigation.setOptions({ title: realTitle });
+            navigation.setOptions({ title: realTitle });
+          }
+        } catch (apiError) {
+          // API unavailable — try offline downloaded content
+          console.warn('[ReaderScreen] API unavailable, trying offline content...');
+          const offlineData = await offlineContentService.getOfflineChapterContent(
+            novel.slug,
+            chapter.chapterNumber
+          );
+          if (offlineData?.content?.length) {
+            realTitle = offlineData.chapterTitle || chapter.chapterTitle || `Chapter ${chapter.chapterNumber}`;
+            const titleContent = `Chapter ${chapter.chapterNumber}: ${realTitle}`;
+            newContent = [titleContent, ...offlineData.content];
+            navigation.setOptions({ title: realTitle });
+            console.log(`📂 [ReaderScreen] Loaded ${offlineData.content.length} paragraphs from offline storage`);
+          } else {
+            Alert.alert(
+              'Offline',
+              'No internet connection and this chapter has not been downloaded. Please connect to continue.'
+            );
+          }
         }
 
         setLocalContent(newContent);
@@ -289,95 +377,8 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const renderParagraph = (paragraph: string, index: number) => {
-    const isCurrentChapterPlaying =
-      globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
-      globalCurrentNovel?.title === novel.title;
-
-    const isActive = isCurrentChapterPlaying && globalParagraphIndex === index;
-    // Removed isLoading check for UI simplification
-
-
-    return (
-      <View
-        key={index}
-        ref={(ref) => {
-          paragraphRefs.current[index] = ref;
-        }}
-      >
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => {
-            console.log('Paragraph pressed! Index:', index);
-            handleParagraphPress(index);
-          }}
-          style={[
-            styles.paragraphContainer,
-            {
-              backgroundColor: isActive
-                ? (backgroundColor === '#fff' ? 'rgba(100, 181, 246, 0.15)' : 'rgba(100, 181, 246, 0.2)')
-                : (backgroundColor === '#fff' ? '#ffffff' : '#252525'), // Lighter/Darker background for contrast
-              borderLeftColor: isActive ? '#64b5f6' : 'transparent',
-              borderLeftWidth: isActive ? 4 : 0,
-              borderColor: isActive
-                ? '#64b5f6'
-                : (backgroundColor === '#fff' ? '#e0e0e0' : '#3A3A3A'), // More visible border
-              shadowColor: isActive ? '#64b5f6' : '#000',
-              shadowOffset: { width: 0, height: isActive ? 4 : 2 },
-              shadowOpacity: isActive ? 0.25 : (backgroundColor === '#fff' ? 0.1 : 0.3),
-              shadowRadius: isActive ? 8 : 4,
-              elevation: isActive ? 8 : 3,
-              transform: [{ scale: isActive ? 1.01 : 1 }],
-              marginBottom: index === 0 ? 24 : 16, // Extra margin for title
-            }
-          ]}
-        >
-          {/* Audio loading and playing indicators removed for simpler UI */}
-
-
-          <Text style={[
-            index === 0 ? styles.chapterTitleText : styles.paragraph, // Special style for title
-            {
-              fontSize: index === 0 ? fontSize * 1.5 : fontSize,
-              color: isActive
-                ? (backgroundColor === '#fff' ? '#1565c0' : '#90caf9')
-                : textColor,
-              fontWeight: index === 0 ? '700' : (isActive ? '600' : '400'),
-              lineHeight: fontSize * (index === 0 ? 1.5 : 1.6), // Increased line height for title
-              marginTop: isActive ? 4 : 0,
-              textAlign: index === 0 ? 'center' : 'justify',
-              paddingVertical: index === 0 ? 4 : 0, // Add padding to prevent clipping
-            }
-          ]}>
-            {paragraph}
-          </Text>
-
-          <View style={styles.paragraphFooter}>
-            <Text style={[
-              styles.paragraphLabel,
-              {
-                color: isActive ? '#64b5f6' : (backgroundColor === '#fff' ? '#757575' : '#888'),
-                fontWeight: isActive ? '600' : '400',
-              }
-            ]}>
-              {index === 0 ? 'Chapter Title' : `Paragraph ${index}`}
-            </Text>
-
-            {/* Word count for better reading experience */}
-            <Text style={[
-              styles.wordCount,
-              { color: backgroundColor === '#fff' ? '#bdbdbd' : '#666' }
-            ]}>
-              {paragraph.split(' ').length} words
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   const renderSpeedModal = () => {
-    const speedOptions = [0.75, 1.0, 1.25, 1.5, 2.0];
+    const speedOptions = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
     return (
       <Modal
@@ -626,20 +627,36 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         style={styles.headerGradient}
       />
 
-      <ScrollView
-        ref={scrollViewRef}
+      <FlatList
+        ref={flatListRef}
+        data={localContent}
+        keyExtractor={(_, index) => String(index)}
+        renderItem={({ item, index }) => (
+          <ParagraphItem
+            paragraph={item}
+            index={index}
+            isActive={
+              globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
+              globalCurrentNovel?.title === novel.title &&
+              globalParagraphIndex === index
+            }
+            onPress={handleParagraphPress}
+            fontSize={fontSize}
+            backgroundColor={backgroundColor}
+            textColor={textColor}
+          />
+        )}
         style={styles.scrollView}
-        contentContainerStyle={[
-          styles.contentContainer,
-          { paddingBottom: 100 }
-        ]}
+        contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.chapterHeader}>
-          {/* Title is now part of the content list */}
-        </View>
-        {localContent.map((paragraph, index) => renderParagraph(paragraph, index))}
-      </ScrollView>
+        removeClippedSubviews
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        initialNumToRender={12}
+        onScrollToIndexFailed={({ index }) => {
+          flatListRef.current?.scrollToOffset({ offset: index * 120, animated: true });
+        }}
+      />
 
       {renderSettingsPanel()}
 
@@ -672,7 +689,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 20,
-    paddingBottom: 120,
+    paddingBottom: 160,
   },
   chapterTitleText: {
     marginBottom: 8,

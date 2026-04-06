@@ -45,7 +45,10 @@ export const novelAPI = {
     return response.data;
   },
 
-  uploadEpub: async (file: FormData): Promise<Novel> => {
+  uploadEpub: async (file: FormData, username?: string): Promise<Novel> => {
+    if (username) {
+      file.append('username', username);
+    }
     const response: AxiosResponse<Novel> = await api.post('/upload-epub', file, {
       headers: {
         'Content-Type': 'multipart/form-data',
