@@ -44,16 +44,18 @@ const DownloadButton: React.FC<DownloadButtonProps> = ({
 
   const isDownloaded = isChapterDownloaded(novelName, chapterNumber);
 
-  const activeDownload = useMemo(
-    () => Array.from(activeDownloads.values()).find(
-      download => downloadedChapters.some(
+  const activeDownload = useMemo(() => {
+    for (const download of activeDownloads.values()) {
+      if (downloadedChapters.some(
         dc => dc.downloadId === download.download_id &&
               dc.novelName === novelName &&
               dc.chapterNumber === chapterNumber
-      )
-    ),
-    [activeDownloads, downloadedChapters, novelName, chapterNumber]
-  );
+      )) {
+        return download;
+      }
+    }
+    return undefined;
+  }, [activeDownloads, downloadedChapters, novelName, chapterNumber]);
 
   const handleDownloadPress = async () => {
     if (isDownloaded) {
