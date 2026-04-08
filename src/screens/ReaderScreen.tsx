@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,15 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Dimensions,
   Modal,
-  Animated,
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { chapterAPI, userAPI } from '../services/api';
-import { Chapter, Novel, RootStackParamList, ChapterContent } from '../types';
+import { chapterAPI } from '../services/api';
+import { RootStackParamList } from '../types';
 import { offlineContentService } from '../services/offlineContentService';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
@@ -25,6 +23,10 @@ import { useProgress } from '../context/ProgressContext';
 
 type ReaderScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Reader'>;
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
+
+// Fallback height used when FlatList cannot scroll to an index (item not yet rendered).
+// Approximate average; keeps the list in the right vicinity without exact measurement.
+const ESTIMATED_PARAGRAPH_HEIGHT = 120;
 
 interface ParagraphItemProps {
   paragraph: string;
@@ -41,6 +43,7 @@ const ParagraphItem = React.memo(({
 }: ParagraphItemProps) => {
   const isTitle = index === 0;
   const isLight = backgroundColor === '#fff';
+  const wordCount = useMemo(() => paragraph.split(' ').length, [paragraph]);
 
   return (
     <TouchableOpacity
@@ -94,7 +97,7 @@ const ParagraphItem = React.memo(({
           {isTitle ? 'Chapter Title' : `Paragraph ${index}`}
         </Text>
         <Text style={[styles.wordCount, { color: isLight ? '#bdbdbd' : '#666' }]}>
-          {paragraph.split(' ').length} words
+          {wordCount} words
         </Text>
       </View>
     </TouchableOpacity>
@@ -109,18 +112,14 @@ interface Props {
 const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   const { novel, chapter } = route.params;
   const {
-    isPlaying,
-    currentParagraphIndex: globalParagraphIndex, // Renamed to avoid confusion
+    currentParagraphIndex: globalParagraphIndex,
     playParagraph,
     loadChapter,
     setPlaybackSpeed,
     setVoices,
-    audioPlayerState,
-    // content, // Removed: using local content
-    // isChapterLoading, // Removed: using local loading state
     playbackSpeed,
-    currentChapter: globalCurrentChapter, // Renamed
-    currentNovel: globalCurrentNovel // Renamed
+    currentChapter: globalCurrentChapter,
+    currentNovel: globalCurrentNovel,
   } = useAudio();
   const { updateProgress } = useProgress();
 
@@ -143,16 +142,15 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const flatListRef = useRef<FlatList>(null);
 
-  const isTransitioning = useRef(false); // Track if we are switching paragraphs
   const { user } = useAuth();
 
   // Auto-scroll functionality
   const scrollToActiveParagraph = useCallback((index: number) => {
     try {
       flatListRef.current?.scrollToIndex({ index, animated: true, viewOffset: 100 });
-    } catch {
-      // If item is not yet rendered, scroll to approximate offset
-      flatListRef.current?.scrollToOffset({ offset: index * 120, animated: true });
+    } catch (e) {
+      console.warn(`[ReaderScreen] scrollToIndex failed for ${index}, using offset fallback:`, e);
+      flatListRef.current?.scrollToOffset({ offset: index * ESTIMATED_PARAGRAPH_HEIGHT, animated: true });
     }
   }, []);
 
@@ -257,27 +255,19 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     setVoices(narratorVoice, dialogueVoice);
   }, [narratorVoice, dialogueVoice, setVoices]);
 
-  const handleParagraphPress = async (index: number) => {
-    console.log('🎯 handleParagraphPress called for index:', index);
-
-    const isCurrentChapterPlaying =
+  const handleParagraphPress = useCallback(async (index: number) => {
+    const isCurrentChapterLoaded =
       globalCurrentChapter?.chapterNumber === chapter.chapterNumber &&
       globalCurrentNovel?.title === novel.title;
 
-    if (!isCurrentChapterPlaying) {
-      console.log('🔄 Switching AudioContext to current chapter...');
-      // Load this chapter into global context using our locally fetched content
-      // autoPlay is NOT set to true here because playParagraph below handles it, 
-      // but loadChapter with initialContent prepares the audio player.
-      // Actually, playParagraph requires the context to be loaded. 
-      // Let's await loadChapter then play.
-
+    if (!isCurrentChapterLoaded) {
+      // AudioContext must be loaded with this chapter before playParagraph works.
+      // Pass localContent so we don't make a redundant API call.
       await loadChapter(novel, chapter, localContent, false);
-      // Short delay to ensure state updates? UseEffect in Context handles content updates.
     }
 
     await playParagraph(index);
-  };
+  }, [chapter, novel, localContent, globalCurrentChapter, globalCurrentNovel, loadChapter, playParagraph]);
 
   const goToPrevious = useCallback(() => {
     if (chapter.chapterNumber > 1) {
@@ -348,14 +338,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
 
-
-  const openNarratorVoiceModal = () => {
-    setShowNarratorModal(true);
-  };
-
-  const openDialogueVoiceModal = () => {
-    setShowDialogueModal(true);
-  };
 
   const selectNarratorVoice = async (voiceValue: string) => {
     setNarratorVoice(voiceValue);
@@ -654,7 +636,7 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
         windowSize={7}
         initialNumToRender={12}
         onScrollToIndexFailed={({ index }) => {
-          flatListRef.current?.scrollToOffset({ offset: index * 120, animated: true });
+          flatListRef.current?.scrollToOffset({ offset: index * ESTIMATED_PARAGRAPH_HEIGHT, animated: true });
         }}
       />
 
@@ -677,7 +659,6 @@ const ReaderScreen: React.FC<Props> = ({ navigation, route }) => {
     </View>
   );
 };
-const { height } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
