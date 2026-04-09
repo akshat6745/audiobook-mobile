@@ -533,6 +533,21 @@ export class AudioCacheManager {
   }
 
   /**
+   * Forcefully preload the next `count` paragraphs ahead of `currentIndex`.
+   * Called when app is about to be backgrounded so cached audio is on disk.
+   */
+  preloadAhead(currentIndex: number, allParagraphs: string[], count: number = 15): void {
+    console.log(`📱 Background preload: fetching up to ${count} paragraphs ahead from index ${currentIndex}`);
+    for (let i = currentIndex + 1; i < allParagraphs.length && i <= currentIndex + count; i++) {
+      if (!this.cache.has(i) && !this.activeRequests.has(i)) {
+        this.loadAudioForParagraph(i, allParagraphs[i]).catch(err => {
+          console.warn(`Background preload failed for paragraph ${i}:`, err);
+        });
+      }
+    }
+  }
+
+  /**
    * Set currently playing paragraph (for optimization)
    */
   setCurrentlyPlaying(index: number | null): void {

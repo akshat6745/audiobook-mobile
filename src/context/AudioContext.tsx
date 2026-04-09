@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { AudioPlayerManager, AudioPlayerState } from '../services/AudioPlayerManager';
 import { AudioCacheManager } from '../services/AudioCacheManager';
 import { Chapter, Novel } from '../types';
@@ -71,6 +72,7 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
   const isTransitioning = useRef(false);
   const loadingChapterId = useRef<string | null>(null);
   const stateRef = useRef({ currentChapter, content, currentNovel });
+  const currentParagraphIndexRef = useRef<number | null>(null);
 
   // Update stateRef whenever relevant state changes
   useEffect(() => {
@@ -86,9 +88,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         narratorVoice,
         dialogueVoice,
         {
-          maxCacheSize: 20,
-          preloadCharacterThreshold: 1000,
-          maxPreloadDistance: 8,
+          maxCacheSize: 30,
+          preloadCharacterThreshold: 3000, // ~3x more buffer
+          maxPreloadDistance: 15,          // preload up to 15 paragraphs ahead
           cacheExpiryMs: 30 * 60 * 1000,
         }
       );
@@ -106,10 +108,27 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
 
     init();
 
+    // Aggressively preload when app is about to be backgrounded
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        console.log('📱 App going to background — triggering aggressive preload');
+        if (audioCacheManager.current) {
+          const currentContent = stateRef.current.content;
+          const currentIdx = currentParagraphIndexRef.current;
+          if (currentContent && currentContent.length > 0 && currentIdx !== null) {
+            audioCacheManager.current.preloadAhead(currentIdx, currentContent, 15);
+          }
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
     return () => {
       if (audioPlayerManager.current) {
         audioPlayerManager.current.cleanup();
       }
+      subscription.remove();
     };
   }, []);
 
@@ -123,6 +142,9 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
   const playParagraph = useCallback(async (index: number, contentOverride?: string[]) => {
     const contentToUse = contentOverride || content;
     if (!audioPlayerManager.current || !contentToUse[index]) return;
+
+    // Track current index for background preload
+    currentParagraphIndexRef.current = index;
 
     // Optimistic update
     isTransitioning.current = true;
