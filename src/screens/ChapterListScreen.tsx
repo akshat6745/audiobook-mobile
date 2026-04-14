@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
   RefreshControl,
   StatusBar,
+  Image,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useFocusEffect, RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { chapterAPI, userAPI } from '../services/api';
+import { chapterAPI, userAPI, imageAPI } from '../services/api';
 import { Chapter, Novel, RootStackParamList, UserProgress } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useProgress } from '../context/ProgressContext';
@@ -253,17 +254,26 @@ const ChapterListScreen: React.FC<Props> = ({ navigation, route }) => {
         colors={[Theme.colors.primary[500], Theme.colors.primary[700]]}
         style={styles.header}
       >
-        <Text style={styles.novelTitle} numberOfLines={2}>
-          {novel.title}
-        </Text>
-        {novel.author && (
-          <Text style={styles.novelAuthor}>by {novel.author}</Text>
-        )}
-        {novel.chapterCount && (
-          <Text style={styles.chapterCount}>
-            {novel.chapterCount} chapters total
-          </Text>
-        )}
+        <View style={styles.headerRow}>
+          <Image
+            source={{ uri: imageAPI.getNovelCoverUrl(novel.slug) }}
+            style={styles.headerCover}
+            resizeMode="cover"
+          />
+          <View style={styles.headerInfo}>
+            <Text style={styles.novelTitle} numberOfLines={2}>
+              {novel.title}
+            </Text>
+            {novel.author && (
+              <Text style={styles.novelAuthor}>by {novel.author}</Text>
+            )}
+            {novel.chapterCount && (
+              <Text style={styles.chapterCount}>
+                {novel.chapterCount} chapters total
+              </Text>
+            )}
+          </View>
+        </View>
       </LinearGradient>
 
       {/* Chapter List */}
@@ -305,6 +315,21 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: Theme.spacing.lg,
     paddingBottom: Theme.spacing.lg,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  headerCover: {
+    width: 85,
+    height: 120,
+    borderRadius: Theme.borderRadius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginRight: Theme.spacing.md,
+  },
+  headerInfo: {
+    flex: 1,
+    justifyContent: 'center',
   },
   novelTitle: {
     fontSize: Theme.typography.fontSizes.xl,

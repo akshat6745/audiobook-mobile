@@ -4,6 +4,8 @@ import { AudioPlayerManager, AudioPlayerState } from '../services/AudioPlayerMan
 import { AudioCacheManager } from '../services/AudioCacheManager';
 import { Chapter, Novel } from '../types';
 import { chapterAPI } from '../services/api';
+import api from '../services/api';
+import * as TrackPlayer from 'react-native-track-player/lib/src/trackPlayer';
 
 interface AudioContextType {
   // State
@@ -185,23 +187,28 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         }
       },
       onAutoAdvance: async (fromIndex, toIndex) => {
-        // We need to access the current content ref or state here. 
-        // Since content is in state, we can use it directly if we ensure this callback 
-        // has access to the latest closure, or we use a ref for content.
-
         // Check if we've reached the end of the chapter
         if (toIndex >= stateRef.current.content.length) {
           console.log('🏁 End of chapter reached, loading next chapter...');
           await loadNextChapter();
           return;
         }
-
-        // Otherwise, this initial callback might be stale for content, 
-        // but the useEffect below handles the active playback updates.
       },
       onError: (error) => {
         console.error('Global Audio Error:', error);
-      }
+      },
+      onRemoteNext: () => {
+        const idx = currentParagraphIndexRef.current;
+        if (idx !== null && idx < stateRef.current.content.length - 1) {
+          playParagraph(idx + 1);
+        }
+      },
+      onRemotePrevious: () => {
+        const idx = currentParagraphIndexRef.current;
+        if (idx !== null && idx > 0) {
+          playParagraph(idx - 1);
+        }
+      },
     });
   };
 
@@ -231,7 +238,6 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
               );
               if (!success) {
                 isTransitioning.current = false;
-                // Paragraph failed entirely (both offline and TTS failed) — skip forward
                 if (toIndex + 1 < content.length) {
                   console.warn(`⏭️ Paragraph ${toIndex} failed, skipping to ${toIndex + 1}`);
                   playParagraph(toIndex + 1);
@@ -242,7 +248,6 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
             } catch (error) {
               console.error('Auto-advance error:', error);
               isTransitioning.current = false;
-              // Skip forward rather than stopping completely
               if (toIndex + 1 < content.length) {
                 console.warn(`⏭️ Auto-advance error at ${toIndex}, skipping to ${toIndex + 1}`);
                 playParagraph(toIndex + 1);
@@ -255,7 +260,19 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
         },
         onError: (error) => {
           console.error('Global Audio Error:', error);
-        }
+        },
+        onRemoteNext: () => {
+          const idx = currentParagraphIndexRef.current;
+          if (idx !== null && idx < content.length - 1) {
+            playParagraph(idx + 1);
+          }
+        },
+        onRemotePrevious: () => {
+          const idx = currentParagraphIndexRef.current;
+          if (idx !== null && idx > 0) {
+            playParagraph(idx - 1);
+          }
+        },
       });
     }
   }, [content]);
@@ -304,6 +321,18 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
       // Set context for audio cache manager to enable self-healing offline storage
       if (audioCacheManager.current) {
         audioCacheManager.current.setContext(novel.slug, chapter.chapterNumber);
+      }
+
+      // Set notification metadata for TrackPlayer
+      if (audioPlayerManager.current) {
+        // Cover image is served directly by the backend — no extra API call needed
+        const artworkUrl = `${api.defaults.baseURL}/novel/${encodeURIComponent(novel.slug)}/cover`;
+
+        audioPlayerManager.current.setMetadata(
+          novel.title,
+          `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
+          artworkUrl
+        );
       }
 
       let newContent: string[] = [];
@@ -427,6 +456,12 @@ export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
     }
     setIsPlaying(false);
     setCurrentParagraphIndex(null);
+    // Stop the notification
+    try {
+      await TrackPlayer.reset();
+    } catch (e) {
+      // Player might not be initialized
+    }
   }, []);
 
   return (

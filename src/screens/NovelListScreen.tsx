@@ -12,13 +12,14 @@ import {
   StatusBar,
   Animated,
   Dimensions,
+  Image,
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 // import { BlurView } from 'expo-blur'; // Removed for compatibility
-import { novelAPI, userAPI } from '../services/api';
+import { novelAPI, userAPI, imageAPI } from '../services/api';
 import { Novel, RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useProgress } from '../context/ProgressContext';
@@ -191,9 +192,11 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
           style={styles.cardGradient}
         >
           <View style={styles.novelHeader}>
-            <View style={[styles.sourceIcon, { backgroundColor: getSourceColor(item.source) }]}>
-              <MaterialIcons name={getSourceIcon(item.source)} size={16} color={Theme.colors.neutral.white} />
-            </View>
+            <Image
+              source={{ uri: imageAPI.getNovelCoverUrl(item.slug) }}
+              style={styles.coverImage}
+              resizeMode="cover"
+            />
             <View style={styles.novelInfo}>
               <Text style={styles.novelTitle} numberOfLines={2}>
                 {item.title}
@@ -203,33 +206,32 @@ const NovelListScreen: React.FC<Props> = ({ navigation }) => {
                   by {item.author}
                 </Text>
               )}
-            </View>
-            <MaterialIcons name="chevron-right" size={24} color="#666" />
-          </View>
 
-          <View style={styles.novelFooter}>
-            {item.chapterCount && (
-              <View style={styles.chapterInfo}>
-                <MaterialIcons name="menu-book" size={16} color="#999" />
-                <Text style={styles.chapterCount}>
-                  {item.chapterCount} chapters
-                </Text>
+              <View style={styles.novelFooter}>
+                {item.chapterCount && (
+                  <View style={styles.chapterInfo}>
+                    <MaterialIcons name="menu-book" size={14} color="#999" />
+                    <Text style={styles.chapterCount}>
+                      {item.chapterCount} chapters
+                    </Text>
+                  </View>
+                )}
+
+                {(progressMap[item.slug] || progressMap[item.title]) && (
+                  <View style={styles.lastReadBadge}>
+                    <MaterialIcons name="history" size={14} color={Theme.colors.success[400]} />
+                    <Text style={styles.lastReadText}>
+                      Ch. {progressMap[item.slug] || progressMap[item.title]}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={[styles.sourceTag, { backgroundColor: getSourceColor(item.source) + '20' }]}>
+                  <Text style={[styles.sourceText, { color: getSourceColor(item.source) }]}>
+                    {item.source === 'epub_upload' ? 'EPUB' : 'WEB'}
+                  </Text>
+                </View>
               </View>
-            )}
-
-            {(progressMap[item.slug] || progressMap[item.title]) && (
-              <View style={styles.lastReadBadge}>
-                <MaterialIcons name="history" size={14} color={Theme.colors.success[400]} />
-                <Text style={styles.lastReadText}>
-                  Ch. {progressMap[item.slug] || progressMap[item.title]}
-                </Text>
-              </View>
-            )}
-
-            <View style={[styles.sourceTag, { backgroundColor: getSourceColor(item.source) + '20' }]}>
-              <Text style={[styles.sourceText, { color: getSourceColor(item.source) }]}>
-                {item.source === 'epub_upload' ? 'EPUB' : 'WEB'}
-              </Text>
             </View>
           </View>
         </LinearGradient>
@@ -408,15 +410,13 @@ const styles = StyleSheet.create({
   novelHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: Theme.spacing.md,
   },
-  sourceIcon: {
-    width: 32,
-    height: 32,
+  coverImage: {
+    width: 70,
+    height: 100,
     borderRadius: Theme.borderRadius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Theme.spacing.sm,
+    backgroundColor: '#333',
+    marginRight: Theme.spacing.md,
   },
   novelInfo: {
     flex: 1,
@@ -434,8 +434,9 @@ const styles = StyleSheet.create({
   },
   novelFooter: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: Theme.spacing.sm,
+    gap: Theme.spacing.sm,
   },
   chapterInfo: {
     flexDirection: 'row',

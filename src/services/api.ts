@@ -14,7 +14,8 @@ import {
 } from '../types';
 
 // Configure base URL for the AudioBookPython API
-const API_BASE_URL = 'https://audiobook-python.onrender.com';
+// const API_BASE_URL = 'https://audiobook-python.onrender.com';
+const API_BASE_URL = 'http://10.0.2.2:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -145,6 +146,10 @@ export const imageAPI = {
 
   getNovelImageUrl: (novelId: string, imageId: string): string => {
     return `${API_BASE_URL}/novel/${encodeURIComponent(novelId)}/image/${encodeURIComponent(imageId)}`;
+  },
+
+  getNovelCoverUrl: (novelSlug: string): string => {
+    return `${API_BASE_URL}/novel/${encodeURIComponent(novelSlug)}/cover`;
   },
 };
 
